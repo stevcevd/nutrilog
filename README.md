@@ -14,3 +14,8 @@ Missing nutrients = 0. One entry per line; several lines can be saved at once.
 
 ## With Android Studio
 Open the folder, let it sync, then Build > Build APK(s).
+
+## Tabs
+- Log: paste entries (Template button adds a ready line with the current time).
+- Diary: browse any day, see progress vs goals, tap an entry for all nutrients, Copy to Log or Delete.
+- Goals: edit every nutrient target, copy as text, or import a "Daily Targets" line. Goals are stored on the phone.
