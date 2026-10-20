@@ -14,6 +14,10 @@ object NutritionParser {
         """^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}:\d{2})\s+(Breakfast|Lunch|Dinner|Snack)\s*\((.*)\)\s*:\s*(.*)$""",
         RegexOption.IGNORE_CASE
     )
+    private val goalsHeader = Regex(
+        """^(?:\d{4}-\d{2}-\d{2}\s+)?Daily Targets\s*:\s*(.*)$""",
+        RegexOption.IGNORE_CASE
+    )
     private val kcalRe = Regex("""^([0-9]+(?:[.,][0-9]+)?)\s*kcal$""", RegexOption.IGNORE_CASE)
     private val fieldRe = Regex(
         """^([A-Za-z0-9_]+)\s+([0-9]+(?:[.,][0-9]+)?)\s*(mcg|µg|ug|mg|g)?$""",
@@ -21,31 +25,40 @@ object NutritionParser {
     )
     private val timeFmt = DateTimeFormatter.ofPattern("yyyy-MM-dd H:mm")
 
-    // label (lowercase) -> default unit if none written
-    private val defaultUnit = mapOf(
-        "p" to "g", "c" to "g", "f" to "g", "satf" to "g", "monof" to "g", "polyf" to "g",
-        "transf" to "g", "fiber" to "g", "sugar" to "g", "chol" to "mg", "na" to "mg",
-        "k" to "mg", "ca" to "mg", "fe" to "mg", "mg" to "mg", "p_" to "mg", "zn" to "mg",
-        "cu" to "mg", "mn" to "mg", "se" to "mcg", "cr" to "mcg", "mo" to "mcg", "i" to "mcg",
-        "cl" to "mg", "caff" to "mg", "vita" to "mcg", "vitb6" to "mg", "vitb12" to "mcg",
-        "vitc" to "mg", "vitd" to "mcg", "vite" to "mg", "vitk" to "mcg", "biotin" to "mcg",
-        "folate" to "mcg", "folicacid" to "mcg", "niacin" to "mg", "pantacid" to "mg",
-        "ribo" to "mg", "thiam" to "mg"
-    )
-
-    private fun toGrams(v: Double, unit: String): Double = when (unit.lowercase()) {
-        "mg" -> v / 1_000.0
-        "mcg", "µg", "ug" -> v / 1_000_000.0
-        else -> v
-    }
-
     private fun num(s: String) = s.replace(',', '.').toDouble()
 
-    /** Parses one line. Throws IllegalArgumentException with a readable message. */
+    /** "1446 kcal | P 46g | ..." -> map key -> value in each nutrient's display unit. */
+    private fun parseValues(rest: String): Map<String, Double> {
+        val parts = rest.split("|").map { it.trim() }.filter { it.isNotEmpty() }
+        if (parts.isEmpty()) throw IllegalArgumentException("Missing kcal")
+        val kcalMatch = kcalRe.matchEntire(parts[0])
+            ?: throw IllegalArgumentException("First value must be calories, e.g. 1446 kcal")
+        val out = HashMap<String, Double>()
+        out["kcal"] = num(kcalMatch.groupValues[1])
+        for (p in parts.drop(1)) {
+            val m = fieldRe.matchEntire(p)
+                ?: throw IllegalArgumentException("Can't read \"$p\" (use e.g. Fiber 4.2g)")
+            val key = m.groupValues[1].lowercase()
+            val nutrient = Nutrients.byKey[key]
+            if (nutrient == null || key == "kcal") {
+                throw IllegalArgumentException("Unknown label \"${m.groupValues[1]}\"")
+            }
+            val unit = m.groupValues[3].ifEmpty { nutrient.unit }
+            out[key] = Units.convert(num(m.groupValues[2]), unit, nutrient.unit)
+        }
+        return out
+    }
+
+    /** Parses "YYYY-MM-DD Daily Targets: ..." (date optional). */
+    fun parseGoals(line: String): Map<String, Double> {
+        val h = goalsHeader.matchEntire(line.trim())
+            ?: throw IllegalArgumentException("Expected: YYYY-MM-DD Daily Targets: N kcal | P 200g | ...")
+        return parseValues(h.groupValues[1])
+    }
+
     fun parseLine(line: String): NutritionRecord {
         val h = header.matchEntire(line.trim())
             ?: throw IllegalArgumentException("Expected: YYYY-MM-DD HH:MM Meal (Name): N kcal | ...")
-
         val (date, time, mealStr, name, rest) = h.destructured
 
         val start = try {
@@ -65,23 +78,14 @@ object NutritionParser {
             else -> MealType.MEAL_TYPE_SNACK
         }
 
-        val parts = rest.split("|").map { it.trim() }.filter { it.isNotEmpty() }
-        if (parts.isEmpty()) throw IllegalArgumentException("Missing kcal")
-        val kcalMatch = kcalRe.matchEntire(parts[0])
-            ?: throw IllegalArgumentException("First value must be calories, e.g. 1446 kcal")
-        val kcal = num(kcalMatch.groupValues[1])
+        val values = parseValues(rest)
 
-        val grams = HashMap<String, Double>()
-        for (p in parts.drop(1)) {
-            val m = fieldRe.matchEntire(p)
-                ?: throw IllegalArgumentException("Can't read \"$p\" (use e.g. Fiber 4.2g)")
-            val key = m.groupValues[1].lowercase()
-            val unit = m.groupValues[3].ifEmpty { defaultUnit[key] ?: "g" }
-            if (key !in defaultUnit) throw IllegalArgumentException("Unknown label \"${m.groupValues[1]}\"")
-            grams[key] = toGrams(num(m.groupValues[2]), unit)
+        fun m(k: String): Mass? {
+            val v = values[k] ?: return null
+            if (v <= 0.0) return null
+            val unit = Nutrients.byKey.getValue(k).unit
+            return Mass.grams(v * Units.factor(unit))
         }
-
-        fun m(k: String): Mass? = grams[k]?.takeIf { it > 0.0 }?.let { Mass.grams(it) }
 
         return NutritionRecord(
             startTime = startInstant,
@@ -90,7 +94,7 @@ object NutritionParser {
             endZoneOffset = offset,
             name = name.trim(),
             mealType = meal,
-            energy = Energy.kilocalories(kcal),
+            energy = Energy.kilocalories(values.getValue("kcal")),
             protein = m("p"),
             totalCarbohydrate = m("c"),
             totalFat = m("f"),
