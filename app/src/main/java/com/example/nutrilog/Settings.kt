@@ -64,50 +64,54 @@ class Settings(ctx: Context) {
     private val app = ctx.applicationContext
     private val p = app.getSharedPreferences("nutrilog", Context.MODE_PRIVATE)
 
-    var themeMode by mutableIntStateOf(p.getInt("theme", 0))      // 0 system, 1 light, 2 dark
-        private set
-    var units by mutableIntStateOf(p.getInt("units", 0))          // 0 metric, 1 imperial
-        private set
-    var fastingTarget by mutableIntStateOf(p.getInt("fast_target", 16))  // hours, 0 = no ring
-        private set
-    var lockMode by mutableIntStateOf(p.getInt("lock_mode", 0))   // 0 off, 1 PIN, 2 biometric + PIN
-        private set
-    var lockTimeout by mutableIntStateOf(p.getInt("lock_timeout", 60))   // seconds
-        private set
-    var hideRecents by mutableStateOf(p.getBoolean("hide_recents", true))
-        private set
-    var backupTree by mutableStateOf(p.getString("backup_tree", null))
-        private set
-    var backupEveryHours by mutableIntStateOf(p.getInt("backup_every", 24))  // 0 manual, 1 after changes
-        private set
-    var backupKeep by mutableIntStateOf(p.getInt("backup_keep", 10))
-        private set
-    var lastBackupAt by mutableLongStateOf(p.getLong("backup_last", 0L))
-        private set
-    var lastBackupMsg by mutableStateOf(p.getString("backup_msg", "") ?: "")
-        private set
-    var profile by mutableStateOf(Profile.fromJson(p.getString("profile", null)))
-        private set
-    var reminders by mutableStateOf(Reminders.parse(p.getString("reminders", null)))
-        private set
+    // State lives in private backing fields; public properties are read-only so Kotlin
+    // does not generate setX() methods that would clash with the setX() functions below.
+    private val _themeMode = mutableIntStateOf(p.getInt("theme", 0))          // 0 system, 1 light, 2 dark
+    private val _units = mutableIntStateOf(p.getInt("units", 0))              // 0 metric, 1 imperial
+    private val _fastingTarget = mutableIntStateOf(p.getInt("fast_target", 16)) // hours, 0 = no ring
+    private val _lockMode = mutableIntStateOf(p.getInt("lock_mode", 0))       // 0 off, 1 PIN, 2 biometric + PIN
+    private val _lockTimeout = mutableIntStateOf(p.getInt("lock_timeout", 60)) // seconds
+    private val _hideRecents = mutableStateOf(p.getBoolean("hide_recents", true))
+    private val _backupTree = mutableStateOf<String?>(p.getString("backup_tree", null))
+    private val _backupEvery = mutableIntStateOf(p.getInt("backup_every", 24)) // 0 manual, 1 after changes
+    private val _backupKeep = mutableIntStateOf(p.getInt("backup_keep", 10))
+    private val _lastBackupAt = mutableLongStateOf(p.getLong("backup_last", 0L))
+    private val _lastBackupMsg = mutableStateOf(p.getString("backup_msg", "") ?: "")
+    private val _profile = mutableStateOf(Profile.fromJson(p.getString("profile", null)))
+    private val _reminders = mutableStateOf(Reminders.parse(p.getString("reminders", null)))
 
-    fun setTheme(v: Int) { themeMode = v; p.edit().putInt("theme", v).apply() }
-    fun setUnits(v: Int) { units = v; p.edit().putInt("units", v).apply() }
-    fun setFastingTarget(v: Int) { fastingTarget = v; p.edit().putInt("fast_target", v).apply() }
-    fun setLockTimeout(v: Int) { lockTimeout = v; p.edit().putInt("lock_timeout", v).apply() }
-    fun setHideRecents(v: Boolean) { hideRecents = v; p.edit().putBoolean("hide_recents", v).apply() }
-    fun setLockMode(v: Int) { lockMode = v; p.edit().putInt("lock_mode", v).apply() }
-    fun setBackupTree(v: String?) { backupTree = v; p.edit().putString("backup_tree", v).apply() }
-    fun setBackupEvery(v: Int) { backupEveryHours = v; p.edit().putInt("backup_every", v).apply() }
-    fun setBackupKeep(v: Int) { backupKeep = v; p.edit().putInt("backup_keep", v).apply() }
+    val themeMode: Int get() = _themeMode.intValue
+    val units: Int get() = _units.intValue
+    val fastingTarget: Int get() = _fastingTarget.intValue
+    val lockMode: Int get() = _lockMode.intValue
+    val lockTimeout: Int get() = _lockTimeout.intValue
+    val hideRecents: Boolean get() = _hideRecents.value
+    val backupTree: String? get() = _backupTree.value
+    val backupEveryHours: Int get() = _backupEvery.intValue
+    val backupKeep: Int get() = _backupKeep.intValue
+    val lastBackupAt: Long get() = _lastBackupAt.longValue
+    val lastBackupMsg: String get() = _lastBackupMsg.value
+    val profile: Profile get() = _profile.value
+    val reminders: List<Reminder> get() = _reminders.value
+
+    fun setTheme(v: Int) { _themeMode.intValue = v; p.edit().putInt("theme", v).apply() }
+    fun setUnits(v: Int) { _units.intValue = v; p.edit().putInt("units", v).apply() }
+    fun setFastingTarget(v: Int) { _fastingTarget.intValue = v; p.edit().putInt("fast_target", v).apply() }
+    fun setLockTimeout(v: Int) { _lockTimeout.intValue = v; p.edit().putInt("lock_timeout", v).apply() }
+    fun setHideRecents(v: Boolean) { _hideRecents.value = v; p.edit().putBoolean("hide_recents", v).apply() }
+    fun setLockMode(v: Int) { _lockMode.intValue = v; p.edit().putInt("lock_mode", v).apply() }
+    fun setBackupTree(v: String?) { _backupTree.value = v; p.edit().putString("backup_tree", v).apply() }
+    fun setBackupEvery(v: Int) { _backupEvery.intValue = v; p.edit().putInt("backup_every", v).apply() }
+    fun setBackupKeep(v: Int) { _backupKeep.intValue = v; p.edit().putInt("backup_keep", v).apply() }
     fun setLastBackup(at: Long, msg: String) {
-        lastBackupAt = at; lastBackupMsg = msg
+        _lastBackupAt.longValue = at
+        _lastBackupMsg.value = msg
         p.edit().putLong("backup_last", at).putString("backup_msg", msg).apply()
     }
-    fun saveProfile(v: Profile) { profile = v; p.edit().putString("profile", v.toJson().toString()).apply() }
+    fun saveProfile(v: Profile) { _profile.value = v; p.edit().putString("profile", v.toJson().toString()).apply() }
     fun saveReminders(v: List<Reminder>) {
-        val old = reminders
-        reminders = v
+        val old = _reminders.value
+        _reminders.value = v
         p.edit().putString("reminders", Reminders.toJson(v)).apply()
         Reminders.apply(app, old, v)
     }
