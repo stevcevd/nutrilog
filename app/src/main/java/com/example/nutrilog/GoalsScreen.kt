@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.sp
 fun GoalsScreen(
     goals: Map<String, Double>,
     waterGoal: Double,
+    onBack: () -> Unit,
     onSave: (Map<String, Double>, Double) -> Unit
 ) {
     val cs = MaterialTheme.colorScheme
@@ -68,7 +69,7 @@ fun GoalsScreen(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        ScreenHeader("Goals", "Daily targets for every nutrient")
+        SubHeader("Goals", onBack)
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             FancyButton("Save", Modifier.weight(1f), icon = R.drawable.ic_check) { save() }

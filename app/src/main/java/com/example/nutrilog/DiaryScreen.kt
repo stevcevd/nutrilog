@@ -42,6 +42,7 @@ fun DiaryScreen(
     client: HealthConnectClient?,
     hasPerms: Boolean,
     goals: Map<String, Double>,
+    settings: Settings,
     refresh: Int,
     onChanged: () -> Unit,
     onRelog: (String) -> Unit
@@ -148,6 +149,7 @@ fun DiaryScreen(
                     onDelete = {
                         scope.launch {
                             try {
+                                settings.addTombstone(Format.entryKey(r))
                                 client.deleteRecords(NutritionRecord::class, listOf(id), emptyList())
                                 expanded = null
                                 tick++

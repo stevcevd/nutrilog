@@ -238,7 +238,7 @@ fun FloatingNavBar(items: List<Pair<String, Int>>, selected: Int, onSelect: (Int
                     Row(
                         Modifier.animateContentSize().clip(RoundedCornerShape(22.dp)).background(bg)
                             .clickable { onSelect(i) }
-                            .padding(horizontal = 13.dp, vertical = 11.dp),
+                            .padding(horizontal = 12.dp, vertical = 11.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         NIcon(icon, fg)

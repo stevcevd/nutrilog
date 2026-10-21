@@ -34,6 +34,7 @@ fun HomeScreen(
     hasPerms: Boolean,
     goals: Map<String, Double>,
     waterGoal: Double,
+    settings: Settings,
     refresh: Int,
     onGoLog: () -> Unit
 ) {
@@ -118,6 +119,8 @@ fun HomeScreen(
             }
         }
 
+        Reveal(1) { FastingCard(client, hasPerms, refresh, settings.fastingTarget) }
+
         // ── Mini rings ──
         Reveal(1) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -157,6 +160,7 @@ fun HomeScreen(
                                         try {
                                             val last = water.maxByOrNull { it.startTime }
                                             if (last != null && client != null) {
+                                                settings.addTombstone("w|${last.startTime.epochSecond}")
                                                 client.deleteRecords(HydrationRecord::class, listOf(last.metadata.id), emptyList())
                                                 tick++
                                             }

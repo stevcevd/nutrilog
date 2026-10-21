@@ -3,6 +3,7 @@ package com.example.nutrilog
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.records.HydrationRecord
 import androidx.health.connect.client.records.NutritionRecord
+import androidx.health.connect.client.records.metadata.Metadata
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import androidx.health.connect.client.units.Volume
@@ -33,10 +34,12 @@ suspend fun readWater(client: HealthConnectClient, date: LocalDate): List<Hydrat
 suspend fun addWater(client: HealthConnectClient, ml: Double) {
     val now = Instant.now()
     val offset = ZoneId.systemDefault().rules.getOffset(now)
+    val start = now.minusSeconds(60)
     client.insertRecords(
         listOf(
             HydrationRecord(
-                startTime = now.minusSeconds(60),
+                metadata = Metadata(clientRecordId = Format.hash("w|${start.epochSecond}")),
+                startTime = start,
                 startZoneOffset = offset,
                 endTime = now,
                 endZoneOffset = offset,

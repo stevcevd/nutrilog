@@ -2,6 +2,7 @@ package com.example.nutrilog
 
 import androidx.health.connect.client.records.MealType
 import androidx.health.connect.client.records.NutritionRecord
+import androidx.health.connect.client.records.metadata.Metadata
 import androidx.health.connect.client.units.Energy
 import androidx.health.connect.client.units.Mass
 import java.time.LocalDateTime
@@ -71,10 +72,16 @@ object NutritionParser {
         val endInstant = startInstant.plusSeconds(60)
         val offset = zone.rules.getOffset(startInstant)
 
-        val meal = when (mealStr.lowercase()) {
-            "breakfast" -> MealType.MEAL_TYPE_BREAKFAST
-            "lunch" -> MealType.MEAL_TYPE_LUNCH
-            "dinner" -> MealType.MEAL_TYPE_DINNER
+        val mealLabel = when (mealStr.lowercase()) {
+            "breakfast" -> "Breakfast"
+            "lunch" -> "Lunch"
+            "dinner" -> "Dinner"
+            else -> "Snack"
+        }
+        val meal = when (mealLabel) {
+            "Breakfast" -> MealType.MEAL_TYPE_BREAKFAST
+            "Lunch" -> MealType.MEAL_TYPE_LUNCH
+            "Dinner" -> MealType.MEAL_TYPE_DINNER
             else -> MealType.MEAL_TYPE_SNACK
         }
 
@@ -87,7 +94,10 @@ object NutritionParser {
             return Mass.grams(v * Units.factor(unit))
         }
 
+        val key = Format.keyOf(start, mealLabel, name, values.getValue("kcal"))
+
         return NutritionRecord(
+            metadata = Metadata(clientRecordId = Format.hash(key)),
             startTime = startInstant,
             startZoneOffset = offset,
             endTime = endInstant,

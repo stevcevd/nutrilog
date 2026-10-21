@@ -3,6 +3,7 @@ package com.example.nutrilog
 import androidx.health.connect.client.records.MealType
 import androidx.health.connect.client.records.NutritionRecord
 import androidx.health.connect.client.units.Mass
+import java.security.MessageDigest
 import java.text.DecimalFormat
 import java.text.DecimalFormatSymbols
 import java.time.LocalDate
@@ -99,10 +100,19 @@ object Nutrients {
 }
 
 object Format {
-    private val df = DecimalFormat("0.##", DecimalFormatSymbols(Locale.US))
+    private val df = DecimalFormat("0.####", DecimalFormatSymbols(Locale.US))
     private val lineTime = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 
     fun num(v: Double): String = df.format(v)
+    fun keyOf(start: LocalDateTime, meal: String, name: String, kcal: Double): String =
+        "${start.format(lineTime)}|$meal|${name.trim()}|${Math.round(kcal)}"
+
+    fun entryKey(r: NutritionRecord): String =
+        keyOf(localStart(r), mealName(r), r.name ?: "", r.energy?.inKilocalories ?: 0.0)
+
+    fun hash(s: String): String =
+        MessageDigest.getInstance("SHA-1").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
+
     fun int(v: Double): String = String.format(Locale.US, "%,d", Math.round(v))
     fun r1(v: Double): String = num(Math.round(v * 10) / 10.0)
 
