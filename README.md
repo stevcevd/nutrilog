@@ -5,17 +5,17 @@ Paste lines like:
 
 Labels: P C F SatF MonoF PolyF TransF Fiber Sugar Chol Na K Ca Fe Mg P_ Zn Cu Mn Se Cr Mo I Cl Caff
 VitA VitB6 VitB12 VitC VitD VitE VitK Biotin Folate FolicAcid Niacin PantAcid Ribo Thiam
-Missing nutrients = 0. One entry per line; several lines can be saved at once.
+Missing nutrients = 0. One entry per line.
+
+## Screens
+- Home: animated activity rings, remaining calories, fiber/sugar/sodium rings, water glass (+250/+500, undo), today's meals.
+- Log: paste/preview/save, recent-food chips, template.
+- Diary: week strip, rings and bars vs goals, expandable entries, copy to Log, delete.
+- Stats: 7/14/30 day line or bar trend per nutrient, macro donut, calories by meal, consistency heatmap, insights.
+- Goals: every nutrient target editable, water goal, copy/import/reset.
 
 ## Get the APK without Android Studio
-1. Create a new GitHub repo and upload all these files (keep the .github folder).
-2. Open the Actions tab -> "Build APK" -> run it (it also runs on every push).
-3. Download the "nutrilog-apk" artifact, unzip, install app-debug.apk on your phone.
-
-## With Android Studio
-Open the folder, let it sync, then Build > Build APK(s).
-
-## Tabs
-- Log: paste entries (Template button adds a ready line with the current time).
-- Diary: browse any day, see progress vs goals, tap an entry for all nutrients, Copy to Log or Delete.
-- Goals: edit every nutrient target, copy as text, or import a "Daily Targets" line. Goals are stored on the phone.
+1. Create a GitHub repo, upload all files (keep the .github folder).
+2. Actions tab -> "Build APK" -> run. Download the nutrilog-apk artifact.
+3. Unzip and install app-debug.apk.
+Or open in Android Studio and Build > Build APK(s).

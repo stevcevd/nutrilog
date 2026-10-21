@@ -20,4 +20,12 @@ object GoalsStore {
     fun save(ctx: Context, goals: Map<String, Double>) {
         prefs(ctx).edit().putString("goals", Format.goalsString(goals)).apply()
     }
+
+    fun defaults(): Map<String, Double> = NutritionParser.parseGoals(DEFAULT)
+
+    fun loadWater(ctx: Context): Double = prefs(ctx).getFloat("water_goal", 2500f).toDouble()
+
+    fun saveWater(ctx: Context, ml: Double) {
+        prefs(ctx).edit().putFloat("water_goal", ml.toFloat()).apply()
+    }
 }

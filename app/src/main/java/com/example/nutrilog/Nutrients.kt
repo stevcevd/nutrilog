@@ -103,6 +103,8 @@ object Format {
     private val lineTime = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 
     fun num(v: Double): String = df.format(v)
+    fun int(v: Double): String = String.format(Locale.US, "%,d", Math.round(v))
+    fun r1(v: Double): String = num(Math.round(v * 10) / 10.0)
 
     fun goalsString(goals: Map<String, Double>): String =
         "${LocalDate.now()} Daily Targets: ${num(goals["kcal"] ?: 0.0)} kcal" +
@@ -120,9 +122,9 @@ object Format {
         LocalDateTime.ofInstant(r.startTime, ZoneId.systemDefault())
 
     /** Turns a stored record back into the paste format (non-zero nutrients only). */
-    fun entryLine(r: NutritionRecord): String {
+    fun entryLine(r: NutritionRecord, at: LocalDateTime = localStart(r)): String {
         val sb = StringBuilder()
-        sb.append(localStart(r).format(lineTime)).append(' ')
+        sb.append(at.format(lineTime)).append(' ')
             .append(mealName(r)).append(" (").append(r.name ?: "").append("): ")
             .append(num(r.energy?.inKilocalories ?: 0.0)).append(" kcal")
         Nutrients.all.filter { it.key != "kcal" }.forEach { n ->

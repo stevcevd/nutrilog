@@ -1,0 +1,18 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- ring track -->
+    <path android:pathData="M54,28 A26,26 0 1 1 54,80 A26,26 0 1 1 54,28"
+        android:strokeColor="#40FFFFFF" android:strokeWidth="6" />
+    <!-- progress arc -->
+    <path android:pathData="M54,28 A26,26 0 1 1 28,54"
+        android:strokeColor="#FFFFFFFF" android:strokeWidth="6" android:strokeLineCap="round" />
+    <!-- accent dot -->
+    <path android:pathData="M28,50.4 a3.6,3.6 0 1 1 0,7.2 a3.6,3.6 0 1 1 0,-7.2 z"
+        android:fillColor="#FFFCD34D" />
+    <!-- leaf -->
+    <path android:pathData="M54,68 C44,64 41,52 54,40 C67,52 64,64 54,68 Z"
+        android:fillColor="#FFFFFFFF" />
+    <path android:pathData="M54,66 L54,50"
+        android:strokeColor="#FF047857" android:strokeWidth="2.2" android:strokeLineCap="round" />
+</vector>
