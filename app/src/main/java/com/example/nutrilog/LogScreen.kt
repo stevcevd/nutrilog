@@ -17,6 +17,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -39,6 +41,7 @@ fun LogScreen(
 ) {
     val cs = MaterialTheme.colorScheme
     val scope = rememberCoroutineScope()
+    val clipboard = LocalClipboardManager.current
     var preview by remember { mutableStateOf<List<String>>(emptyList()) }
     var errors by remember { mutableStateOf<List<String>>(emptyList()) }
     var status by remember { mutableStateOf("") }
@@ -84,14 +87,56 @@ fun LogScreen(
     ) {
         ScreenHeader("Log food", "Paste, preview, save")
 
+        // AI helper
         Reveal(0) {
             AppCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("AI helper", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Copy a prompt, paste it into any chatbot, then describe your meal. Paste its reply back here.",
+                            fontSize = 12.sp, color = cs.onSurfaceVariant
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    FancyButton("Copy prompt", icon = R.drawable.ic_copy, compact = true) {
+                        clipboard.setText(AnnotatedString(AiPrompt.build()))
+                        statusOk = true
+                        status = "AI prompt copied"
+                    }
+                }
+            }
+        }
+
+        // Entry box
+        Reveal(1) {
+            AppCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SectionLabel("Entries", Modifier.weight(1f))
+                    FancyButton("Paste", compact = true, filled = false) {
+                        val clean = Paste.clean(clipboard.getText()?.text ?: "")
+                        if (clean.isBlank()) {
+                            statusOk = false
+                            status = "No valid entry lines found on the clipboard"
+                        } else {
+                            onText(if (text.isBlank()) clean else text.trimEnd() + "\n" + clean)
+                            statusOk = true
+                            status = "Pasted ${clean.lines().size} line(s)"
+                        }
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    FancyButton("Template", compact = true, filled = false) {
+                        val now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+                        val t = "$now Snack (Name): 0 kcal | P 0g | C 0g | F 0g | Fiber 0g | Sugar 0g | Na 0mg"
+                        onText(if (text.isBlank()) t else text.trimEnd() + "\n" + t)
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
                 OutlinedTextField(
                     value = text,
                     onValueChange = onText,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 170.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp),
                     shape = RoundedCornerShape(18.dp),
-                    label = { Text("Entries, one per line") },
                     placeholder = { Text("2026-10-19 08:30 Breakfast (Banica & Yogurt): 1446 kcal | P 46.4g | C 137.6g | F 78g", fontSize = 13.sp) }
                 )
             }
@@ -114,16 +159,8 @@ fun LogScreen(
         }
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            FancyButton("Template", Modifier.weight(1f), filled = false) {
-                val now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
-                val t = "$now Snack (Name): 0 kcal | P 0g | C 0g | F 0g | Fiber 0g | Sugar 0g | Na 0mg"
-                onText(if (text.isBlank()) t else text.trimEnd() + "\n" + t)
-            }
-            FancyButton("Preview", Modifier.weight(1f), filled = false) { status = ""; parseAll() }
-            FancyButton(
-                "Save", Modifier.weight(1f), icon = R.drawable.ic_check,
-                enabled = client != null && text.isNotBlank()
-            ) {
+            FancyButton("Preview", Modifier.weight(1f), icon = R.drawable.ic_eye, filled = false) { status = ""; parseAll() }
+            FancyButton("Save", Modifier.weight(1f), icon = R.drawable.ic_check, enabled = client != null && text.isNotBlank()) {
                 status = ""
                 val recs = parseAll()
                 if (errors.isEmpty() && recs.isNotEmpty() && client != null) {

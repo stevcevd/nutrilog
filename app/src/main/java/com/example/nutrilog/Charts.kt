@@ -362,3 +362,97 @@ fun BarChart(
         AxisLabels(shortLabels)
     }
 }
+
+/** Weekly average calories as bars (left scale) with average weight as a line (own scale). */
+@Composable
+fun WeightCalChart(
+    kcal: List<Double?>,
+    weight: List<Double?>,
+    shortLabels: List<String>,
+    kcalGoal: Double?,
+    weightUnit: String,
+    modifier: Modifier = Modifier
+) {
+    val anim = rememberAnimatedFloat(1f, 1200)
+    var sel by remember(kcal, weight) { mutableIntStateOf(-1) }
+    val n = kcal.size
+    val cs = MaterialTheme.colorScheme
+    val grid = cs.outline.copy(alpha = 0.25f)
+    val surface = cs.surface
+    val maxK = (maxOf(kcal.filterNotNull().maxOrNull() ?: 0.0, kcalGoal ?: 0.0).coerceAtLeast(1.0) * 1.2).toFloat()
+    val ws = weight.filterNotNull()
+    val wMin = ws.minOrNull() ?: 0.0
+    val wMax = ws.maxOrNull() ?: 1.0
+    val pad = maxOf((wMax - wMin) * 0.3, 0.5)
+    val lo = (wMin - pad).toFloat()
+    val hi = (wMax + pad).toFloat()
+
+    Column(modifier) {
+        Box(Modifier.fillMaxWidth().height(28.dp), contentAlignment = Alignment.CenterStart) {
+            if (sel in 0 until n) {
+                val k = kcal[sel]?.let { Format.int(it) + " kcal/day" } ?: "no food logged"
+                val w = weight[sel]?.let { Format.r1(it) + " " + weightUnit } ?: "no weigh-in"
+                Text("${shortLabels[sel]}  ·  $k  ·  $w", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            } else {
+                Text("Tap or drag to inspect", fontSize = 13.sp, color = cs.onSurfaceVariant)
+            }
+        }
+        Canvas(
+            Modifier.fillMaxWidth().height(200.dp).padding(top = 6.dp)
+                .pointerInput(n) {
+                    detectTapGestures { o -> if (n > 0) sel = (o.x / size.width * n).toInt().coerceIn(0, n - 1) }
+                }
+                .pointerInput(n) {
+                    detectHorizontalDragGestures { change, _ ->
+                        if (n > 0) sel = (change.position.x / size.width * n).toInt().coerceIn(0, n - 1)
+                    }
+                }
+        ) {
+            val w = size.width
+            val h = size.height
+            for (i in 0..3) {
+                val y = h * i / 3f
+                drawLine(grid, Offset(0f, y), Offset(w, y), strokeWidth = 1.dp.toPx())
+            }
+            if (n == 0) return@Canvas
+            val slot = w / n
+            val barW = slot * 0.52f
+            kcal.forEachIndexed { i, v ->
+                if (v != null) {
+                    val bh = (v.toFloat() / maxK) * h * anim
+                    val c = Brand.Emerald.copy(alpha = if (sel == -1 || sel == i) 0.55f else 0.22f)
+                    drawRoundRect(
+                        color = c, topLeft = Offset(i * slot + (slot - barW) / 2, h - bh),
+                        size = Size(barW, bh), cornerRadius = CornerRadius(barW / 4f, barW / 4f)
+                    )
+                }
+            }
+            if (kcalGoal != null && kcalGoal > 0) {
+                val gy = h - (kcalGoal.toFloat() / maxK) * h
+                drawLine(Brand.Carbs, Offset(0f, gy), Offset(w, gy), strokeWidth = 1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 10f)))
+            }
+
+            val xAt = { i: Int -> (i + 0.5f) * slot }
+            val yAt = { v: Double -> h - ((v.toFloat() - lo) / (hi - lo)) * h }
+            val line = Path()
+            var pen = false
+            weight.forEachIndexed { i, v ->
+                if (v == null) {
+                    pen = false
+                } else {
+                    if (!pen) { line.moveTo(xAt(i), yAt(v)); pen = true } else line.lineTo(xAt(i), yAt(v))
+                }
+            }
+            clipRect(right = w * anim) {
+                drawPath(line, Brand.Protein, style = Stroke(3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+            }
+            weight.forEachIndexed { i, v ->
+                if (v != null && xAt(i) <= w * anim) {
+                    drawCircle(surface, 6.dp.toPx(), Offset(xAt(i), yAt(v)))
+                    drawCircle(Brand.Protein, 4.dp.toPx(), Offset(xAt(i), yAt(v)))
+                }
+            }
+        }
+        AxisLabels(shortLabels)
+    }
+}

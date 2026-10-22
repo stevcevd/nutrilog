@@ -154,6 +154,36 @@ fun RemindersScreen(settings: Settings, onBack: () -> Unit) {
     ) {
         SubHeader("Meal reminders", onBack)
 
+        AppCard {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Smart reminders", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Stay quiet when a reminder isn't needed", fontSize = 12.sp, color = cs.onSurfaceVariant)
+                }
+                Switch(checked = settings.smartReminders, onCheckedChange = { settings.setSmart(it) })
+            }
+            if (settings.smartReminders) {
+                Spacer(Modifier.height(12.dp))
+                Text("Skip if you already logged that meal today", fontSize = 13.sp)
+                Spacer(Modifier.height(10.dp))
+                Text("Skip if you ate in the last", fontSize = 13.sp, color = cs.onSurfaceVariant)
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(30, 60, 90, 120).forEach { m -> FancyChip("$m min", settings.smartGap == m) { settings.setSmartGap(m) } }
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Skip once your calorie goal is reached", Modifier.weight(1f), fontSize = 13.sp)
+                    Switch(checked = settings.smartGoal, onCheckedChange = { settings.setSmartGoal(it) })
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Checks use what you've logged in this app. Notifications show what's left today and have Log now and Snooze buttons.",
+                    fontSize = 12.sp, color = cs.onSurfaceVariant
+                )
+            }
+        }
+
         if (needsNotif) {
             AppCard {
                 Text("Notifications are off", fontWeight = FontWeight.SemiBold)

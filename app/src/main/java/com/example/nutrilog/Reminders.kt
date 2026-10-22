@@ -11,6 +11,9 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import org.json.JSONArray
 import org.json.JSONObject
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.Calendar
 
 data class Reminder(val id: Int, val label: String, val hour: Int, val minute: Int, val enabled: Boolean)
@@ -43,8 +46,29 @@ object Reminders {
         return a.toString()
     }
 
-    private fun pending(ctx: Context, id: Int): PendingIntent = PendingIntent.getBroadcast(
-        ctx, id, Intent(ctx, ReminderReceiver::class.java).putExtra("id", id),
+    /** Which meal a reminder is about, judged from its name. */
+    fun mealOf(label: String): String? {
+        val l = label.lowercase()
+        return when {
+            "breakfast" in l -> "Breakfast"
+            "lunch" in l -> "Lunch"
+            "dinner" in l || "supper" in l -> "Dinner"
+            "snack" in l -> "Snack"
+            else -> null
+        }
+    }
+
+    fun template(label: String): String {
+        val meal = mealOf(label) ?: "Snack"
+        val now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+        return "$now $meal (Name): 0 kcal | P 0g | C 0g | F 0g | Fiber 0g | Sugar 0g | Na 0mg"
+    }
+
+    private fun prefs(ctx: Context) = ctx.getSharedPreferences("nutrilog", Context.MODE_PRIVATE)
+
+    private fun pending(ctx: Context, id: Int, snoozed: Boolean): PendingIntent = PendingIntent.getBroadcast(
+        ctx, if (snoozed) id + 5000 else id,
+        Intent(ctx, ReminderReceiver::class.java).putExtra("id", id).putExtra("snoozed", snoozed),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
 
@@ -58,11 +82,18 @@ object Reminders {
 
     fun schedule(ctx: Context, r: Reminder) {
         val am = ctx.getSystemService(AlarmManager::class.java)
-        am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, nextTrigger(r.hour, r.minute), pending(ctx, r.id))
+        am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, nextTrigger(r.hour, r.minute), pending(ctx, r.id, false))
+    }
+
+    fun snooze(ctx: Context, id: Int, minutes: Int) {
+        val am = ctx.getSystemService(AlarmManager::class.java)
+        am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + minutes * 60_000L, pending(ctx, id, true))
     }
 
     private fun cancel(ctx: Context, id: Int) {
-        ctx.getSystemService(AlarmManager::class.java).cancel(pending(ctx, id))
+        val am = ctx.getSystemService(AlarmManager::class.java)
+        am.cancel(pending(ctx, id, false))
+        am.cancel(pending(ctx, id, true))
     }
 
     fun apply(ctx: Context, old: List<Reminder>, new: List<Reminder>) {
@@ -74,19 +105,52 @@ object Reminders {
         list.filter { it.enabled }.forEach { schedule(ctx, it) }
     }
 
+    /** Returns why a reminder should stay quiet, or null if it should show. Uses the local daily ledger. */
+    fun skipReason(ctx: Context, r: Reminder): String? {
+        val p = prefs(ctx)
+        if (!p.getBoolean("smart", true)) return null
+        val led = Ledger.get(ctx, LocalDate.now())
+        val meal = mealOf(r.label)
+        if (meal != null && meal != "Snack" && meal in led.meals) return "$meal already logged"
+        val gapMs = p.getInt("smart_gap", 60) * 60_000L
+        val since = System.currentTimeMillis() - led.lastMealAt
+        if (led.lastMealAt > 0 && since in 0..gapMs) return "ate recently"
+        if (p.getBoolean("smart_goal", true)) {
+            val goal = GoalsStore.load(ctx)["kcal"] ?: 0.0
+            if (goal > 0 && led.kcal >= goal * 0.95) return "calorie goal reached"
+        }
+        return null
+    }
+
     fun notify(ctx: Context, r: Reminder) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CHANNEL, "Meal reminders", NotificationManager.IMPORTANCE_DEFAULT))
-        val open = PendingIntent.getActivity(
-            ctx, 0, Intent(ctx, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+
+        val goals = GoalsStore.load(ctx)
+        val led = Ledger.get(ctx, LocalDate.now())
+        val kcalGoal = goals["kcal"] ?: 0.0
+        val text = if (kcalGoal > 0) {
+            "${Format.int(maxOf(kcalGoal - led.kcal, 0.0))} kcal and ${Format.int(maxOf((goals["p"] ?: 0.0) - led.protein, 0.0))} g protein left today."
+        } else {
+            "Open NutriLog and log your entry."
+        }
+
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        val openIntent = Intent(ctx, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            .putExtra("open_tab", 1)
+            .putExtra("meal", r.label)
+        val open = PendingIntent.getActivity(ctx, r.id, openIntent, flags)
+        val snooze = PendingIntent.getBroadcast(ctx, r.id + 9000, Intent(ctx, SnoozeReceiver::class.java).putExtra("id", r.id), flags)
+
         val n = NotificationCompat.Builder(ctx, CHANNEL)
             .setSmallIcon(R.drawable.ic_bell)
             .setContentTitle("Time to log: ${r.label}")
-            .setContentText("Open NutriLog and paste your entry.")
+            .setContentText(text)
             .setContentIntent(open)
             .setAutoCancel(true)
+            .addAction(R.drawable.ic_plus, "Log now", open)
+            .addAction(R.drawable.ic_timer, "Snooze 30 min", snooze)
             .build()
         try {
             if (NotificationManagerCompat.from(ctx).areNotificationsEnabled()) {
@@ -99,10 +163,20 @@ object Reminders {
 class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val id = intent.getIntExtra("id", -1)
+        val snoozed = intent.getBooleanExtra("snoozed", false)
         val list = Reminders.parse(context.getSharedPreferences("nutrilog", Context.MODE_PRIVATE).getString("reminders", null))
-        val r = list.firstOrNull { it.id == id && it.enabled } ?: return
-        Reminders.notify(context, r)
-        Reminders.schedule(context, r)   // next day
+        val r = list.firstOrNull { it.id == id } ?: return
+        if (!snoozed && !r.enabled) return
+        if (Reminders.skipReason(context, r) == null) Reminders.notify(context, r)
+        if (!snoozed) Reminders.schedule(context, r)   // next day
+    }
+}
+
+class SnoozeReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val id = intent.getIntExtra("id", -1)
+        NotificationManagerCompat.from(context).cancel(1000 + id)
+        Reminders.snooze(context, id, 30)
     }
 }
 

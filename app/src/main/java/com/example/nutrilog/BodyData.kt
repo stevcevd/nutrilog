@@ -131,3 +131,11 @@ suspend fun readBody(client: HealthConnectClient): BodySnapshot {
 
     return BodySnapshot(latestW, series, change, bodyFat, height, lean, bone, bmr, steps, active, total, workouts)
 }
+
+/** Raw weigh-ins (instant, kg) from Health Connect for the last [days] days. */
+suspend fun readWeightPoints(client: HealthConnectClient, days: Long): List<Pair<Instant, Double>> {
+    val now = Instant.now()
+    return client.readRecords(
+        ReadRecordsRequest(WeightRecord::class, TimeRangeFilter.between(now.minus(Duration.ofDays(days)), now))
+    ).records.sortedBy { it.time }.map { it.time to it.weight.inKilograms }
+}

@@ -1,5 +1,6 @@
 package com.example.nutrilog
 
+import android.content.Intent
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.WindowManager
@@ -34,6 +35,7 @@ import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.HydrationRecord
 import androidx.health.connect.client.records.NutritionRecord
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 
 class MainActivity : FragmentActivity() {
     private lateinit var settings: Settings
@@ -43,6 +45,7 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         settings = Settings(this)
         if (savedInstanceState == null && settings.lockMode != 0 && settings.pinSet) AppLock.locked = true
+        handleIntent(intent)
 
         setContent {
             val dark = when (settings.themeMode) {
@@ -73,6 +76,23 @@ class MainActivity : FragmentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    /** "Log now" on a reminder notification opens the Log tab with a template for that meal. */
+    private fun handleIntent(i: Intent?) {
+        if (i == null) return
+        val tab = i.getIntExtra("open_tab", -1)
+        if (tab >= 0) {
+            NavRequest.prefill = i.getStringExtra("meal")?.let { Reminders.template(it) }
+            NavRequest.tab = tab
+            i.removeExtra("open_tab")
         }
     }
 
@@ -137,8 +157,35 @@ fun App(settings: Settings) {
     val requestCore = { AppLock.skipNext = true; launcher.launch(corePerms) }
     val requestBody = { AppLock.skipNext = true; launcher.launch(BODY_PERMISSIONS) }
 
+    val saveGoals: (Map<String, Double>, Double) -> Unit = { newGoals, newWater ->
+        GoalsStore.save(context, newGoals)
+        GoalsStore.saveWater(context, newWater)
+        goals = newGoals
+        waterGoal = newWater
+    }
+
     LaunchedEffect(client) { refreshPerms() }
     LaunchedEffect(Unit) { Reminders.scheduleAll(context, settings.reminders) }
+
+    // "Log now" from a notification: jump to the Log tab and pre-fill a template
+    LaunchedEffect(NavRequest.tab) {
+        if (NavRequest.tab >= 0) {
+            tab = NavRequest.tab
+            NavRequest.prefill?.let { logText = if (logText.isBlank()) it else logText.trimEnd() + "\n" + it }
+            NavRequest.prefill = null
+            NavRequest.tab = -1
+        }
+    }
+
+    // Keep the small local daily summary in step with Health Connect (used by smart reminders)
+    LaunchedEffect(client, hasPerms, refresh) {
+        if (client != null && hasPerms) {
+            try {
+                val today = LocalDate.now()
+                Ledger.syncDay(context, today, readNutrition(client, today, today.plusDays(1)))
+            } catch (e: Exception) { }
+        }
+    }
 
     // Scheduled / after-change backups (Health Connect can only be read while the app is open)
     LaunchedEffect(refresh, hasPerms, client, settings.backupTree, settings.backupEveryHours) {
@@ -197,19 +244,13 @@ fun App(settings: Settings) {
                 label = "tabs"
             ) { t ->
                 when (t) {
-                    0 -> HomeScreen(client, hasPerms, goals, waterGoal, settings, refresh) { tab = 1 }
+                    0 -> HomeScreen(client, hasPerms, goals, waterGoal, settings, refresh, { tab = 4 }) { tab = 1 }
                     1 -> LogScreen(client, hasPerms, logText, { logText = it }, refresh, { refresh++ }) { requestCore() }
                     2 -> DiaryScreen(client, hasPerms, goals, settings, refresh, { refresh++ }) { line -> logText = line; tab = 1 }
-                    3 -> StatsScreen(client, hasPerms, goals, refresh)
+                    3 -> StatsScreen(client, hasPerms, hasBody, { requestBody() }, goals, waterGoal, settings, refresh, saveGoals)
                     else -> MeHost(
                         client, hasPerms, hasBody, { requestBody() }, settings, goals, waterGoal,
-                        { newGoals, newWater ->
-                            GoalsStore.save(context, newGoals)
-                            GoalsStore.saveWater(context, newWater)
-                            goals = newGoals
-                            waterGoal = newWater
-                        },
-                        refresh, { refresh++ }, onRestoreSettings
+                        saveGoals, refresh, { refresh++ }, onRestoreSettings
                     )
                 }
             }

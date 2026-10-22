@@ -57,7 +57,7 @@ object NutritionParser {
         return parseValues(h.groupValues[1])
     }
 
-    fun parseLine(line: String): NutritionRecord {
+    fun parseLine(line: String, idSalt: String = ""): NutritionRecord {
         val h = header.matchEntire(line.trim())
             ?: throw IllegalArgumentException("Expected: YYYY-MM-DD HH:MM Meal (Name): N kcal | ...")
         val (date, time, mealStr, name, rest) = h.destructured
@@ -97,7 +97,7 @@ object NutritionParser {
         val key = Format.keyOf(start, mealLabel, name, values.getValue("kcal"))
 
         return NutritionRecord(
-            metadata = Metadata(clientRecordId = Format.hash(key)),
+            metadata = Metadata(clientRecordId = Format.hash(key + idSalt), clientRecordVersion = System.currentTimeMillis()),
             startTime = startInstant,
             startZoneOffset = offset,
             endTime = endInstant,

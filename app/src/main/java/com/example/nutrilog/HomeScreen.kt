@@ -36,6 +36,7 @@ fun HomeScreen(
     waterGoal: Double,
     settings: Settings,
     refresh: Int,
+    onGoMe: () -> Unit,
     onGoLog: () -> Unit
 ) {
     val cs = MaterialTheme.colorScheme
@@ -76,7 +77,14 @@ fun HomeScreen(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        ScreenHeader(greeting, today.format(DateTimeFormatter.ofPattern("EEEE, d MMMM")))
+        Row(Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(today.format(DateTimeFormatter.ofPattern("EEEE, d MMMM")), fontSize = 13.sp, color = cs.onSurfaceVariant)
+                val who = settings.profile.nick.ifBlank { settings.profile.first }
+                Text(if (who.isBlank()) greeting else "$greeting, $who", fontSize = 26.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            }
+            Avatar(AvatarSpec.parse(settings.profile.avatar), 48.dp, Modifier.bounceClick(true, onGoMe))
+        }
         error?.let { Text("Couldn't read data: $it", color = cs.error, fontSize = 13.sp) }
 
         // ── Hero ──

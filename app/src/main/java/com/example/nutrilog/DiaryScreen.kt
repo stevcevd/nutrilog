@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -55,6 +56,10 @@ fun DiaryScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var expanded by remember { mutableStateOf<String?>(null) }
     var showAll by remember { mutableStateOf(false) }
+    var editingId by remember { mutableStateOf<String?>(null) }
+    var editText by remember { mutableStateOf("") }
+    var editError by remember { mutableStateOf("") }
+    var editBusy by remember { mutableStateOf(false) }
 
     LaunchedEffect(date, hasPerms, tick, client, refresh) {
         if (client != null && hasPerms) {
@@ -64,6 +69,33 @@ fun DiaryScreen(
             } catch (e: Exception) {
                 error = e.message
             }
+        }
+    }
+
+    fun saveEdit(old: NutritionRecord) {
+        if (client == null) return
+        scope.launch {
+            editBusy = true
+            try {
+                val line = editText.lines().firstOrNull { it.isNotBlank() } ?: throw IllegalArgumentException("Nothing to save")
+                // fresh record id so the replacement is always a brand new record
+                val rec = NutritionParser.parseLine(line, idSalt = "#e" + System.currentTimeMillis())
+                if (Format.entryLine(rec) == Format.entryLine(old)) {
+                    editError = "No changes to save"
+                } else {
+                    val oldKey = Format.entryKey(old)
+                    client.insertRecords(listOf(rec))
+                    client.deleteRecords(NutritionRecord::class, listOf(old.metadata.id), emptyList())
+                    if (oldKey != Format.entryKey(rec)) settings.addTombstone(oldKey)
+                    editingId = null
+                    editError = ""
+                    tick++
+                    onChanged()
+                }
+            } catch (e: Exception) {
+                editError = e.message ?: "Couldn't save"
+            }
+            editBusy = false
         }
     }
 
@@ -84,7 +116,7 @@ fun DiaryScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item { ScreenHeader("Diary", date.format(DateTimeFormatter.ofPattern("MMMM yyyy"))) }
-            item { DayStrip(date) { date = it; expanded = null } }
+            item { DayStrip(date) { date = it; expanded = null; editingId = null } }
             item {
                 error?.let { Text("Couldn't read: $it", color = cs.error, fontSize = 13.sp) }
                 AppCard {
@@ -112,13 +144,10 @@ fun DiaryScreen(
                         }
                     }
                     Spacer(Modifier.height(8.dp))
-                    Nutrients.byKey.getValue("fiber").let { NutrientBar(it, t("fiber"), g("fiber")) }
-                    Nutrients.byKey.getValue("sugar").let { NutrientBar(it, t("sugar"), g("sugar")) }
+                    NutrientBar(Nutrients.byKey.getValue("fiber"), t("fiber"), g("fiber"))
+                    NutrientBar(Nutrients.byKey.getValue("sugar"), t("sugar"), g("sugar"))
                     Spacer(Modifier.height(6.dp))
-                    FancyButton(
-                        if (showAll) "Hide other nutrients" else "Show all nutrients",
-                        filled = false, compact = true
-                    ) { showAll = !showAll }
+                    FancyButton(if (showAll) "Hide other nutrients" else "Show all nutrients", filled = false, compact = true) { showAll = !showAll }
                     AnimatedVisibility(showAll, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
                         Column {
                             Nutrients.groups.forEach { grp ->
@@ -134,17 +163,22 @@ fun DiaryScreen(
             }
             item { SectionLabel("Entries (${records.size})", Modifier.padding(top = 4.dp)) }
             if (records.isEmpty()) {
-                item {
-                    AppCard {
-                        Text("Nothing logged on this day.", color = cs.onSurfaceVariant)
-                    }
-                }
+                item { AppCard { Text("Nothing logged on this day.", color = cs.onSurfaceVariant) } }
             }
             items(records, key = { it.metadata.id }) { r ->
                 val id = r.metadata.id
                 EntryCard(
-                    r, expanded == id,
-                    onToggle = { expanded = if (expanded == id) null else id },
+                    r = r,
+                    expanded = expanded == id,
+                    editing = editingId == id,
+                    editText = editText,
+                    editError = editError,
+                    busy = editBusy,
+                    onToggle = { if (editingId != id) expanded = if (expanded == id) null else id },
+                    onEditText = { editText = it; editError = "" },
+                    onStartEdit = { editingId = id; editText = Format.entryLine(r); editError = "" },
+                    onCancelEdit = { editingId = null; editError = "" },
+                    onSaveEdit = { saveEdit(r) },
                     onCopy = { onRelog(Format.entryLine(r)) },
                     onDelete = {
                         scope.launch {
@@ -181,8 +215,7 @@ private fun DayStrip(selected: LocalDate, onSelect: (LocalDate) -> Unit) {
                 val bg by animateColorAsState(if (sel) cs.primary else Color.Transparent, label = "daybg")
                 val fg by animateColorAsState(if (sel) cs.onPrimary else cs.onSurface, label = "dayfg")
                 Column(
-                    Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).background(bg)
-                        .clickable { onSelect(d) }.padding(vertical = 8.dp),
+                    Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).background(bg).clickable { onSelect(d) }.padding(vertical = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
@@ -207,19 +240,28 @@ private fun DayStrip(selected: LocalDate, onSelect: (LocalDate) -> Unit) {
 private fun EntryCard(
     r: NutritionRecord,
     expanded: Boolean,
+    editing: Boolean,
+    editText: String,
+    editError: String,
+    busy: Boolean,
     onToggle: () -> Unit,
+    onEditText: (String) -> Unit,
+    onStartEdit: () -> Unit,
+    onCancelEdit: () -> Unit,
+    onSaveEdit: () -> Unit,
     onCopy: () -> Unit,
     onDelete: () -> Unit
 ) {
     val cs = MaterialTheme.colorScheme
     val meal = Format.mealName(r)
     val mc = Brand.mealColor(meal)
-    val rot by animateFloatAsState(if (expanded) 90f else 0f, label = "chev")
+    val open = expanded || editing
+    val rot by animateFloatAsState(if (open) 90f else 0f, label = "chev")
     Surface(
         shape = RoundedCornerShape(22.dp),
         color = cs.surface,
         shadowElevation = 2.dp,
-        border = BorderStroke(1.dp, cs.outline.copy(alpha = 0.18f)),
+        border = BorderStroke(1.dp, if (editing) cs.primary else cs.outline.copy(alpha = 0.18f)),
         modifier = Modifier.fillMaxWidth().animateContentSize()
     ) {
         Column(Modifier.clickable(onClick = onToggle).padding(14.dp)) {
@@ -245,24 +287,45 @@ private fun EntryCard(
                 Spacer(Modifier.width(6.dp))
                 NIcon(R.drawable.ic_chevron_right, cs.onSurfaceVariant, 18.dp, Modifier.rotate(rot))
             }
-            AnimatedVisibility(expanded, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+            AnimatedVisibility(open, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
                 Column {
                     Spacer(Modifier.height(10.dp))
                     HorizontalDivider(color = cs.outline.copy(alpha = 0.25f))
                     Spacer(Modifier.height(8.dp))
-                    Nutrients.all.forEach { n ->
-                        val v = n.read(r) ?: 0.0
-                        if (v > 0.0) {
-                            Row(Modifier.padding(vertical = 2.dp)) {
-                                Text(n.name, Modifier.weight(1f), fontSize = 13.sp, color = cs.onSurfaceVariant)
-                                Text("${Format.r1(v)} ${n.unit}", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    if (editing) {
+                        Text("Edit the line, same format as Log. Change the time, name, calories or any nutrient.", fontSize = 12.sp, color = cs.onSurfaceVariant)
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = editText,
+                            onValueChange = onEditText,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp),
+                            shape = RoundedCornerShape(16.dp)
+                        )
+                        if (editError.isNotEmpty()) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(editError, fontSize = 13.sp, color = cs.error, fontWeight = FontWeight.SemiBold)
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            FancyButton(if (busy) "Saving..." else "Save changes", Modifier.weight(1f), icon = R.drawable.ic_check, compact = true, enabled = !busy, onClick = onSaveEdit)
+                            FancyButton("Cancel", Modifier.weight(1f), compact = true, filled = false, onClick = onCancelEdit)
+                        }
+                    } else {
+                        Nutrients.all.forEach { n ->
+                            val v = n.read(r) ?: 0.0
+                            if (v > 0.0) {
+                                Row(Modifier.padding(vertical = 2.dp)) {
+                                    Text(n.name, Modifier.weight(1f), fontSize = 13.sp, color = cs.onSurfaceVariant)
+                                    Text("${Format.r1(v)} ${n.unit}", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                }
                             }
                         }
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        FancyButton("Copy to Log", Modifier.weight(1f), icon = R.drawable.ic_copy, compact = true, filled = false, onClick = onCopy)
-                        FancyButton("Delete", Modifier.weight(1f), icon = R.drawable.ic_trash, compact = true, filled = false, danger = true, onClick = onDelete)
+                        Spacer(Modifier.height(12.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FancyButton("Edit", Modifier.weight(1f), icon = R.drawable.ic_edit, compact = true, onClick = onStartEdit)
+                            FancyButton("Copy", Modifier.weight(1f), icon = R.drawable.ic_copy, compact = true, filled = false, onClick = onCopy)
+                            FancyButton("Delete", Modifier.weight(1f), icon = R.drawable.ic_trash, compact = true, filled = false, danger = true, onClick = onDelete)
+                        }
                     }
                 }
             }

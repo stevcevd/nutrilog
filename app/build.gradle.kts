@@ -13,7 +13,7 @@ android {
         targetSdk = 34
         // Always increasing, so a new build can replace the installed one.
         versionCode = (System.currentTimeMillis() / 60000L).toInt()
-        versionName = "4.0"
+        versionName = "5.0"
     }
 
     // Same key on every build = Android treats a new APK as an UPDATE of the installed app.

@@ -79,6 +79,9 @@ class Settings(ctx: Context) {
     private val _lastBackupMsg = mutableStateOf(p.getString("backup_msg", "") ?: "")
     private val _profile = mutableStateOf(Profile.fromJson(p.getString("profile", null)))
     private val _reminders = mutableStateOf(Reminders.parse(p.getString("reminders", null)))
+    private val _smart = mutableStateOf(p.getBoolean("smart", true))
+    private val _smartGap = mutableIntStateOf(p.getInt("smart_gap", 60))
+    private val _smartGoal = mutableStateOf(p.getBoolean("smart_goal", true))
 
     val themeMode: Int get() = _themeMode.intValue
     val units: Int get() = _units.intValue
@@ -93,7 +96,13 @@ class Settings(ctx: Context) {
     val lastBackupMsg: String get() = _lastBackupMsg.value
     val profile: Profile get() = _profile.value
     val reminders: List<Reminder> get() = _reminders.value
+    val smartReminders: Boolean get() = _smart.value
+    val smartGap: Int get() = _smartGap.intValue
+    val smartGoal: Boolean get() = _smartGoal.value
 
+    fun setSmart(v: Boolean) { _smart.value = v; p.edit().putBoolean("smart", v).apply() }
+    fun setSmartGap(v: Int) { _smartGap.intValue = v; p.edit().putInt("smart_gap", v).apply() }
+    fun setSmartGoal(v: Boolean) { _smartGoal.value = v; p.edit().putBoolean("smart_goal", v).apply() }
     fun setTheme(v: Int) { _themeMode.intValue = v; p.edit().putInt("theme", v).apply() }
     fun setUnits(v: Int) { _units.intValue = v; p.edit().putInt("units", v).apply() }
     fun setFastingTarget(v: Int) { _fastingTarget.intValue = v; p.edit().putInt("fast_target", v).apply() }

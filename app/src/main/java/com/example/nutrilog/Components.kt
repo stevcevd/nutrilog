@@ -31,7 +31,9 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -52,6 +54,7 @@ fun rememberAnimatedFloat(target: Float, duration: Int = 1000): Float {
 fun Modifier.bounceClick(enabled: Boolean = true, onClick: () -> Unit): Modifier = composed {
     var pressed by remember { mutableStateOf(false) }
     val cb by rememberUpdatedState(onClick)
+    val haptic = LocalHapticFeedback.current
     val s by animateFloatAsState(
         if (pressed) 0.94f else 1f,
         spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
@@ -66,7 +69,7 @@ fun Modifier.bounceClick(enabled: Boolean = true, onClick: () -> Unit): Modifier
                     pressed = false
                 }
             },
-            onTap = { if (enabled) cb() }
+            onTap = { if (enabled) { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); cb() } }
         )
     }
 }
@@ -192,12 +195,12 @@ fun CountUp(
 }
 
 @Composable
-fun NutrientBar(n: Nutrient, value: Double, goal: Double, modifier: Modifier = Modifier) {
+fun NutrientBar(n: Nutrient, value: Double, goal: Double, modifier: Modifier = Modifier, colorOverride: Color? = null) {
     val cs = MaterialTheme.colorScheme
     val frac = if (goal > 0) (value / goal).toFloat() else 0f
     val a = rememberAnimatedFloat(frac.coerceIn(0f, 1f), 900)
     val over = goal > 0 && value > goal && n.key in Nutrients.limitKeys
-    val c = if (over) Brand.Warn else Brand.colorFor(n.key, cs.primary)
+    val c = colorOverride ?: (if (over) Brand.Warn else Brand.colorFor(n.key, cs.primary))
     Column(modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(n.name, Modifier.weight(1f), fontSize = 14.sp, fontWeight = FontWeight.Medium)

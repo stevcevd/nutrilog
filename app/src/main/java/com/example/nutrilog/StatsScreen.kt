@@ -1,7 +1,12 @@
 package com.example.nutrilog
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -23,54 +28,99 @@ import androidx.compose.ui.unit.sp
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.records.NutritionRecord
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.math.abs
 
 private data class Day(val date: LocalDate, val totals: Map<String, Double>, val count: Int)
 
+private fun buildDays(records: List<NutritionRecord>): List<Day> {
+    val end = LocalDate.now()
+    val byDay = records.groupBy { it.day() }
+    return (55 downTo 0).map { off ->
+        val d = end.minusDays(off.toLong())
+        val rs = byDay[d] ?: emptyList()
+        Day(d, totalsOf(rs), rs.size)
+    }
+}
+
 @Composable
-fun StatsScreen(client: HealthConnectClient?, hasPerms: Boolean, goals: Map<String, Double>, refresh: Int) {
+fun StatsScreen(
+    client: HealthConnectClient?,
+    hasPerms: Boolean,
+    hasBody: Boolean,
+    requestBody: () -> Unit,
+    goals: Map<String, Double>,
+    waterGoal: Double,
+    settings: Settings,
+    refresh: Int,
+    onSaveGoals: (Map<String, Double>, Double) -> Unit
+) {
     val cs = MaterialTheme.colorScheme
-    var range by remember { mutableIntStateOf(7) }
-    var key by remember { mutableStateOf("kcal") }
-    var bars by remember { mutableStateOf(false) }
+    var sub by remember { mutableIntStateOf(0) }
     var records by remember { mutableStateOf<List<NutritionRecord>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(client, hasPerms, refresh, range) {
+    LaunchedEffect(client, hasPerms, refresh) {
         if (client != null && hasPerms) {
             try {
                 val today = LocalDate.now()
-                records = readNutrition(client, today.minusDays((range - 1).toLong()), today.plusDays(1))
+                records = readNutrition(client, today.minusDays(55), today.plusDays(1))
                 error = null
             } catch (e: Exception) {
                 error = e.message
             }
         }
     }
+    val allDays = remember(records) { buildDays(records) }
 
-    if (client == null || !hasPerms) {
-        Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-            Text("Grant Health Connect access to see your stats.", color = cs.onSurfaceVariant, textAlign = TextAlign.Center)
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        ScreenHeader("Stats", "How you're trending")
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("Overview", "Weight vs calories", "Weekly report").forEachIndexed { i, l -> FancyChip(l, sub == i) { sub = i } }
         }
-        return
-    }
+        Spacer(Modifier.height(10.dp))
+        error?.let { Text("Couldn't read: $it", color = cs.error, fontSize = 13.sp) }
 
+        if (client == null || !hasPerms) {
+            Box(Modifier.weight(1f).fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                Text("Grant Health Connect access to see your stats.", color = cs.onSurfaceVariant, textAlign = TextAlign.Center)
+            }
+        } else {
+            AnimatedContent(
+                targetState = sub,
+                modifier = Modifier.weight(1f),
+                transitionSpec = { fadeIn(tween(250)) togetherWith fadeOut(tween(150)) },
+                label = "statsTabs"
+            ) { s ->
+                when (s) {
+                    0 -> OverviewTab(allDays, records, goals)
+                    1 -> BodyTab(client, hasBody, requestBody, allDays, goals, waterGoal, settings, onSaveGoals)
+                    else -> ReportTab(allDays, goals)
+                }
+            }
+        }
+    }
+}
+
+// ───────────────────────── Overview ─────────────────────────
+
+@Composable
+private fun OverviewTab(allDays: List<Day>, records: List<NutritionRecord>, goals: Map<String, Double>) {
+    val cs = MaterialTheme.colorScheme
+    var range by remember { mutableIntStateOf(7) }
+    var key by remember { mutableStateOf("kcal") }
+    var bars by remember { mutableStateOf(false) }
+    val days = remember(allDays, range) { allDays.takeLast(range) }
     val today = LocalDate.now()
-    val days = remember(records, range) {
-        (range - 1 downTo 0).map { off ->
-            val d = today.minusDays(off.toLong())
-            val rs = records.filter { it.day() == d }
-            Day(d, totalsOf(rs), rs.size)
-        }
-    }
     val logged = days.filter { it.count > 0 }
     val nLogged = logged.size
     fun avg(k: String): Double = if (nLogged == 0) 0.0 else logged.sumOf { it.totals[k] ?: 0.0 } / nLogged
     val goal = { k: String -> goals[k] ?: 0.0 }
 
     var streak = 0
-    for (d in days.asReversed()) {
+    for (d in allDays.asReversed()) {
         if (d.count > 0) streak++ else if (d.date != today) break
     }
 
@@ -79,24 +129,20 @@ fun StatsScreen(client: HealthConnectClient?, hasPerms: Boolean, goals: Map<Stri
         else if (i % 5 == 0 || i == days.lastIndex) d.date.dayOfMonth.toString() else ""
     }
     val fullLabels = days.map { it.date.format(DateTimeFormatter.ofPattern("EEE, d MMM")) }
-
     val trendKeys = listOf("kcal", "p", "c", "f", "fiber", "sugar", "na")
-    val trendN = Nutrients.byKey.getValue(key)
-    val trendValues = days.map { it.totals[key] ?: 0.0 }
-    val trendColor = if (key == "kcal") cs.primary else Brand.colorFor(key, cs.secondary)
+    val rangeRecords = remember(records, range) {
+        val from = days.first().date
+        records.filter { !it.day().isBefore(from) }
+    }
 
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        ScreenHeader("Stats", "How you're trending")
-        error?.let { Text("Couldn't read: $it", color = cs.error, fontSize = 13.sp) }
-
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(7, 14, 30).forEach { r -> FancyChip("$r days", range == r) { range = r } }
         }
 
-        // ── Summary tiles ──
         Reveal(0) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -110,7 +156,6 @@ fun StatsScreen(client: HealthConnectClient?, hasPerms: Boolean, goals: Map<Stri
             }
         }
 
-        // ── Trend ──
         Reveal(1) {
             AppCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -121,25 +166,19 @@ fun StatsScreen(client: HealthConnectClient?, hasPerms: Boolean, goals: Map<Stri
                 }
                 Spacer(Modifier.height(10.dp))
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    trendKeys.forEach { k ->
-                        FancyChip(Nutrients.byKey.getValue(k).name, key == k) { key = k }
-                    }
+                    trendKeys.forEach { k -> FancyChip(Nutrients.byKey.getValue(k).name, key == k) { key = k } }
                 }
                 Spacer(Modifier.height(12.dp))
                 Crossfade(targetState = bars to key, label = "trend") { (b, k) ->
                     val vals = days.map { it.totals[k] ?: 0.0 }
                     val col = if (k == "kcal") cs.primary else Brand.colorFor(k, cs.secondary)
                     val nn = Nutrients.byKey.getValue(k)
-                    if (b) {
-                        BarChart(vals, shortLabels, fullLabels, goal(k), col, nn.unit, highlightOver = k in Nutrients.limitKeys || k == "kcal")
-                    } else {
-                        AreaChart(vals, shortLabels, fullLabels, goal(k), col, nn.unit)
-                    }
+                    if (b) BarChart(vals, shortLabels, fullLabels, goal(k), col, nn.unit, highlightOver = k in Nutrients.limitKeys || k == "kcal")
+                    else AreaChart(vals, shortLabels, fullLabels, goal(k), col, nn.unit)
                 }
             }
         }
 
-        // ── Macro split ──
         Reveal(2) {
             AppCard {
                 SectionLabel("Macro split")
@@ -150,11 +189,7 @@ fun StatsScreen(client: HealthConnectClient?, hasPerms: Boolean, goals: Map<Stri
                 val fK = avg("f") * 9
                 val tot = pK + cK + fK
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    DonutChart(
-                        listOf(pK.toFloat(), cK.toFloat(), fK.toFloat()),
-                        listOf(Brand.Protein, Brand.Carbs, Brand.Fat),
-                        Modifier.size(140.dp), stroke = 20.dp
-                    ) {
+                    DonutChart(listOf(pK.toFloat(), cK.toFloat(), fK.toFloat()), listOf(Brand.Protein, Brand.Carbs, Brand.Fat), Modifier.size(140.dp), stroke = 20.dp) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             CountUp(avg("kcal"), fontSize = 20.sp)
                             Text("kcal avg", fontSize = 11.sp, color = cs.onSurfaceVariant)
@@ -183,13 +218,12 @@ fun StatsScreen(client: HealthConnectClient?, hasPerms: Boolean, goals: Map<Stri
             }
         }
 
-        // ── Meals ──
         Reveal(3) {
             AppCard {
                 SectionLabel("Calories by meal")
                 Spacer(Modifier.height(12.dp))
                 val byMeal = listOf("Breakfast", "Lunch", "Dinner", "Snack").map { m ->
-                    m to records.filter { Format.mealName(it) == m }.sumOf { it.energy?.inKilocalories ?: 0.0 }
+                    m to rangeRecords.filter { Format.mealName(it) == m }.sumOf { it.energy?.inKilocalories ?: 0.0 }
                 }
                 val total = byMeal.sumOf { it.second }
                 if (total <= 0) {
@@ -214,7 +248,6 @@ fun StatsScreen(client: HealthConnectClient?, hasPerms: Boolean, goals: Map<Stri
             }
         }
 
-        // ── Consistency heatmap ──
         Reveal(4) {
             AppCard {
                 SectionLabel("Calorie consistency")
@@ -223,26 +256,277 @@ fun StatsScreen(client: HealthConnectClient?, hasPerms: Boolean, goals: Map<Stri
                 Heatmap(days.map { Triple(it.date, it.totals["kcal"] ?: 0.0, it.count) }, goal("kcal"))
             }
         }
+        Spacer(Modifier.height(100.dp))
+    }
+}
 
-        // ── Insights ──
-        Reveal(5) {
+// ───────────────────────── Weight vs calories ─────────────────────────
+
+@Composable
+private fun BodyTab(
+    client: HealthConnectClient,
+    hasBody: Boolean,
+    requestBody: () -> Unit,
+    allDays: List<Day>,
+    goals: Map<String, Double>,
+    waterGoal: Double,
+    settings: Settings,
+    onSaveGoals: (Map<String, Double>, Double) -> Unit
+) {
+    val cs = MaterialTheme.colorScheme
+    var weeks by remember { mutableIntStateOf(4) }
+    var points by remember { mutableStateOf<List<Pair<java.time.Instant, Double>>>(emptyList()) }
+    var loaded by remember { mutableStateOf(false) }
+    var applied by remember { mutableStateOf("") }
+
+    LaunchedEffect(client, hasBody) {
+        if (hasBody) {
+            try { points = readWeightPoints(client, 60) } catch (e: Exception) { }
+            loaded = true
+        }
+    }
+
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        if (!hasBody) {
             AppCard {
-                SectionLabel("Insights")
-                Spacer(Modifier.height(8.dp))
-                val proteinDays = logged.count { (it.totals["p"] ?: 0.0) >= 0.9 * goal("p") }
-                val kcalDays = logged.count {
-                    val v = it.totals["kcal"] ?: 0.0
-                    goal("kcal") > 0 && v >= 0.85 * goal("kcal") && v <= 1.15 * goal("kcal")
+                Text("Weight vs calories", fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "This compares your weight trend with what you eat, judged against your goal. " +
+                        "Weight comes from Health Connect, nothing is typed in here.",
+                    fontSize = 13.sp, color = cs.onSurfaceVariant
+                )
+                Spacer(Modifier.height(12.dp))
+                FancyButton("Connect body data", icon = R.drawable.ic_scale, onClick = requestBody)
+            }
+        } else {
+            val zone = ZoneId.systemDefault()
+            val end = LocalDate.now()
+            val windowStart = end.minusDays(weeks * 7L - 1)
+            val weighDaily = points
+                .map { it.first.atZone(zone).toLocalDate() to it.second }
+                .groupBy({ it.first }, { it.second })
+                .map { (d, v) -> d to v.average() }
+                .sortedBy { it.first }
+            val inWindow = weighDaily.filter { !it.first.isBefore(windowStart) }
+            val kcalByDay = allDays.filter { !it.date.isBefore(windowStart) }.associate { it.date to (it.totals["kcal"] ?: 0.0) }
+            val goalType = settings.profile.goalType
+            val kcalGoal = goals["kcal"] ?: 0.0
+            val verdict = GoalLogic.analyze(goalType, inWindow, kcalByDay, weeks * 7, kcalGoal)
+            val buckets = GoalLogic.buckets(weeks, end, weighDaily, kcalByDay)
+            val lb = settings.units == 1
+            val mult = if (lb) 2.20462 else 1.0
+            val wUnit = if (lb) "lb" else "kg"
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(4, 8).forEach { w -> FancyChip("$w weeks", weeks == w) { weeks = w } }
+            }
+
+            Reveal(0) {
+                AppCard {
+                    SectionLabel("Weight vs calories")
+                    Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        LegendDot(Brand.Emerald, "Avg kcal per day")
+                        LegendDot(Brand.Protein, "Avg weight ($wUnit)")
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    if (!loaded) {
+                        Text("Reading from Health Connect...", color = cs.onSurfaceVariant, fontSize = 13.sp)
+                    } else if (buckets.all { it.kcal == null && it.weightKg == null }) {
+                        Text("No data in this window yet.", color = cs.onSurfaceVariant, fontSize = 13.sp)
+                    } else {
+                        WeightCalChart(
+                            kcal = buckets.map { it.kcal },
+                            weight = buckets.map { it.weightKg?.times(mult) },
+                            shortLabels = buckets.map { it.label },
+                            kcalGoal = kcalGoal,
+                            weightUnit = wUnit
+                        )
+                    }
                 }
-                Insight("Protein goal (90%+) reached on $proteinDays of $nLogged logged days", Brand.Protein)
-                Insight("Calories within 15% of goal on $kcalDays days", cs.primary)
-                Insight("Average fiber ${Format.r1(avg("fiber"))} g vs goal ${Format.num(goal("fiber"))} g", Brand.Fiber)
-                Insight("Average sodium ${Format.int(avg("na"))} mg vs limit ${Format.int(goal("na"))} mg", Brand.Carbs)
+            }
+
+            Reveal(1) {
+                AppCard {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        SectionLabel("Goal check", Modifier.weight(1f))
+                        FancyChip(GoalLogic.goalName(goalType), true) { }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    if (!verdict.ok) {
+                        Text(verdict.message, fontSize = 14.sp, color = cs.onSurfaceVariant)
+                        Spacer(Modifier.height(6.dp))
+                        Text("Keep logging food and weighing in, this fills in on its own.", fontSize = 12.sp, color = cs.onSurfaceVariant)
+                    } else {
+                        val dot = when (verdict.status) { 0 -> Brand.Emerald; 1 -> Brand.Carbs; else -> Brand.Warn }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(12.dp).clip(CircleShape).background(dot))
+                            Spacer(Modifier.width(10.dp))
+                            Text(verdict.headline, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        val kgShown = verdict.slopeKgWeek * mult
+                        Text(
+                            "Weight is changing by ${if (kgShown >= 0) "+" else ""}${Format.num(Math.round(kgShown * 100) / 100.0)} $wUnit per week " +
+                                "(${if (verdict.ratePct >= 0) "+" else ""}${Format.num(Math.round(verdict.ratePct * 100) / 100.0)}% of body weight).",
+                            fontSize = 14.sp
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "A ${GoalLogic.goalName(goalType).lowercase()} plan aims for " +
+                                "${fmtPct(verdict.range.min)} to ${fmtPct(verdict.range.max)} per week.",
+                            fontSize = 13.sp, color = cs.onSurfaceVariant
+                        )
+
+                        Spacer(Modifier.height(14.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            MiniFact("You eat", "${Format.int(verdict.avgIntake)} kcal", Modifier.weight(1f))
+                            MiniFact("Maintenance", "~${Format.int(verdict.maintenance)} kcal", Modifier.weight(1f))
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        val delta = verdict.suggested - kcalGoal
+                        Text("Suggested daily calories", fontSize = 13.sp, color = cs.onSurfaceVariant)
+                        Row(verticalAlignment = Alignment.Bottom) {
+                            Text(Format.int(verdict.suggested), fontSize = 30.sp, fontWeight = FontWeight.Bold, color = cs.primary)
+                            Text(" kcal", fontSize = 14.sp, color = cs.onSurfaceVariant, modifier = Modifier.padding(bottom = 4.dp))
+                        }
+                        if (verdict.status == 0) {
+                            Text("Your pace matches your goal, so keep calories about here.", fontSize = 13.sp, color = cs.onSurfaceVariant)
+                        } else if (kcalGoal > 0) {
+                            Text(
+                                "That is ${if (delta >= 0) "+" else "-"}${Format.int(abs(delta))} kcal compared with your current goal of ${Format.int(kcalGoal)}.",
+                                fontSize = 13.sp, color = cs.onSurfaceVariant
+                            )
+                        }
+                        if (abs(delta) >= 50) {
+                            Spacer(Modifier.height(12.dp))
+                            FancyButton("Set calorie goal to ${Format.int(verdict.suggested)}", icon = R.drawable.ic_check, compact = true) {
+                                onSaveGoals(goals + ("kcal" to verdict.suggested), waterGoal)
+                                applied = "Calorie goal updated"
+                            }
+                        }
+                        if (applied.isNotEmpty()) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(applied, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = cs.primary)
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            "Based on ${verdict.loggedDays} logged days of ${verdict.totalDays}" +
+                                (if (verdict.loggedDays < verdict.totalDays * 0.7) " (log more days for a better estimate)" else "") +
+                                ". Uses about 7,700 kcal per kg. Water weight moves the scale a lot, so judge trends over 2+ weeks. " +
+                                "This is a guide, not medical advice.",
+                            fontSize = 11.sp, color = cs.onSurfaceVariant
+                        )
+                    }
+                }
             }
         }
         Spacer(Modifier.height(100.dp))
     }
 }
+
+private fun fmtPct(v: Double) = (if (v > 0) "+" else "") + Format.num(v) + "%"
+
+@Composable
+private fun LegendDot(color: Color, text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(9.dp).clip(CircleShape).background(color))
+        Spacer(Modifier.width(6.dp))
+        Text(text, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun MiniFact(label: String, value: String, modifier: Modifier) {
+    val cs = MaterialTheme.colorScheme
+    Column(modifier.clip(RoundedCornerShape(16.dp)).background(cs.surfaceVariant).padding(12.dp)) {
+        Text(label, fontSize = 11.sp, color = cs.onSurfaceVariant)
+        Text(value, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+// ───────────────────────── Weekly report ─────────────────────────
+
+@Composable
+private fun ReportTab(allDays: List<Day>, goals: Map<String, Double>) {
+    val cs = MaterialTheme.colorScheme
+    val last7 = allDays.takeLast(7)
+    val logged = last7.filter { it.count > 0 }
+    val (under, over) = remember(allDays, goals) { computeGaps(logged.map { it.totals }, goals) }
+    val onTarget = under.count { it.pct >= 0.9 }
+
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        if (logged.isEmpty()) {
+            AppCard {
+                Text("No entries in the last 7 days.", fontWeight = FontWeight.SemiBold)
+                Text("Log some meals and your weekly gap report appears here.", fontSize = 13.sp, color = cs.onSurfaceVariant)
+            }
+        } else {
+            Reveal(0) {
+                AppCard {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        val frac = if (under.isEmpty()) 0f else onTarget.toFloat() / under.size
+                        RingChart(frac, Brand.Emerald, Modifier.size(96.dp), stroke = 11.dp) {
+                            Text("${(frac * 100).toInt()}%", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(Modifier.width(18.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Your week", fontSize = 13.sp, color = cs.onSurfaceVariant)
+                            Text("$onTarget of ${under.size} nutrients on target", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                "Based on ${logged.size} logged day${if (logged.size == 1) "" else "s"}. On target means averaging at least 90% of your goal.",
+                                fontSize = 12.sp, color = cs.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
+            Reveal(1) {
+                AppCard {
+                    SectionLabel("Biggest gaps")
+                    Text("Lowest versus your goals, daily average", fontSize = 12.sp, color = cs.onSurfaceVariant)
+                    Spacer(Modifier.height(8.dp))
+                    val shown = under.filter { it.pct < 0.9 }.take(8)
+                    if (shown.isEmpty()) {
+                        Text("No gaps. Everything is at 90% of goal or better.", fontSize = 14.sp, color = cs.primary, fontWeight = FontWeight.SemiBold)
+                    }
+                    shown.forEach { g ->
+                        val color = if (g.pct < 0.5) Brand.Warn else if (g.pct < 0.8) Brand.Carbs else Brand.Emerald
+                        NutrientBar(g.n, g.avg, g.goal, colorOverride = color)
+                        FoodIdeas.map[g.n.key]?.let {
+                            Text("Try: $it", fontSize = 11.sp, color = cs.onSurfaceVariant, modifier = Modifier.padding(bottom = 6.dp))
+                        }
+                    }
+                    if (shown.isNotEmpty()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text("Food ideas are general suggestions, not medical advice.", fontSize = 11.sp, color = cs.onSurfaceVariant)
+                    }
+                }
+            }
+
+            if (over.isNotEmpty()) {
+                Reveal(2) {
+                    AppCard {
+                        SectionLabel("Over the limit")
+                        Text("Nutrients you want to keep down", fontSize = 12.sp, color = cs.onSurfaceVariant)
+                        Spacer(Modifier.height(8.dp))
+                        over.forEach { g -> NutrientBar(g.n, g.avg, g.goal) }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(100.dp))
+    }
+}
+
+// ───────────────────────── shared bits ─────────────────────────
 
 @Composable
 private fun StatTile(label: String, value: Double, unit: String, color: Color, modifier: Modifier) {
@@ -253,15 +537,6 @@ private fun StatTile(label: String, value: Double, unit: String, color: Color, m
         Text(label, fontSize = 12.sp, color = cs.onSurfaceVariant)
         CountUp(value, fontSize = 26.sp, color = cs.onSurface)
         Text(unit, fontSize = 11.sp, color = cs.onSurfaceVariant)
-    }
-}
-
-@Composable
-private fun Insight(text: String, color: Color) {
-    Row(Modifier.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(8.dp).clip(CircleShape).background(color))
-        Spacer(Modifier.width(10.dp))
-        Text(text, fontSize = 14.sp)
     }
 }
 
@@ -294,10 +569,7 @@ private fun Heatmap(cells: List<Triple<LocalDate, Double, Int>>, goal: Double) {
                             else -> cs.primary.copy(alpha = 0.35f)
                         }
                         val bg by animateColorAsState(target, label = "heat")
-                        Box(
-                            Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(10.dp)).background(bg),
-                            contentAlignment = Alignment.Center
-                        ) {
+                        Box(Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(10.dp)).background(bg), contentAlignment = Alignment.Center) {
                             Text(
                                 d.dayOfMonth.toString(), fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
                                 color = if (count == 0) cs.onSurfaceVariant else if (pct in 0.85..1.15) cs.onPrimary else cs.onSurface
