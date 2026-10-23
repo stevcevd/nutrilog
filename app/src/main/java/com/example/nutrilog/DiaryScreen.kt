@@ -29,6 +29,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.health.connect.client.HealthConnectClient
@@ -103,7 +104,7 @@ fun DiaryScreen(
     val g = { k: String -> goals[k] ?: 0.0 }
     val t = { k: String -> totals[k] ?: 0.0 }
     val frac = { k: String -> if (g(k) > 0) (t(k) / g(k)).toFloat() else 0f }
-    val mainKeys = listOf("kcal", "p", "c", "f", "fiber", "sugar")
+    val mainKeys = listOf("kcal", "p", "c", "f") + settings.highlights
 
     if (client == null || !hasPerms) {
         Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
@@ -120,32 +121,16 @@ fun DiaryScreen(
             item {
                 error?.let { Text("Couldn't read: $it", color = cs.error, fontSize = 13.sp) }
                 AppCard {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        ActivityRings(
-                            listOf(frac("kcal"), frac("p"), frac("c"), frac("f")),
-                            listOf(cs.primary, Brand.Protein, Brand.Carbs, Brand.Fat),
-                            Modifier.size(128.dp), stroke = 9.dp, gap = 3.dp
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                CountUp(t("kcal"), fontSize = 22.sp)
-                                Text("of ${Format.int(g("kcal"))}", fontSize = 11.sp, color = cs.onSurfaceVariant)
-                            }
-                        }
-                        Spacer(Modifier.width(16.dp))
-                        Column(Modifier.weight(1f)) {
-                            listOf("p" to "Protein", "c" to "Carbs", "f" to "Fat").forEach { (k, label) ->
-                                Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Box(Modifier.size(10.dp).clip(CircleShape).background(Brand.colorFor(k, cs.primary)))
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(label, Modifier.weight(1f), fontSize = 14.sp)
-                                    Text("${Format.r1(t(k))} / ${Format.num(g(k))} g", fontSize = 12.sp, color = cs.onSurfaceVariant)
-                                }
-                            }
-                        }
+                    CalorieSummary(
+                        style = settings.ringStyle, hero = false, showRemaining = false,
+                        kcal = t("kcal"), kcalGoal = g("kcal"),
+                        p = t("p"), pGoal = g("p"), c = t("c"), cGoal = g("c"), f = t("f"), fGoal = g("f")
+                    )
+                    val extra = settings.highlights.filter { it !in listOf("p", "c", "f") }
+                    if (extra.isNotEmpty()) {
+                        Spacer(Modifier.height(10.dp))
+                        extra.forEach { k -> NutrientBar(Nutrients.byKey.getValue(k), t(k), g(k)) }
                     }
-                    Spacer(Modifier.height(8.dp))
-                    NutrientBar(Nutrients.byKey.getValue("fiber"), t("fiber"), g("fiber"))
-                    NutrientBar(Nutrients.byKey.getValue("sugar"), t("sugar"), g("sugar"))
                     Spacer(Modifier.height(6.dp))
                     FancyButton(if (showAll) "Hide other nutrients" else "Show all nutrients", filled = false, compact = true) { showAll = !showAll }
                     AnimatedVisibility(showAll, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
@@ -273,8 +258,8 @@ private fun EntryCard(
                     Text(Format.localStart(r).format(DateTimeFormatter.ofPattern("HH:mm")), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = mc)
                 }
                 Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(r.name ?: "", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                    Text(r.name ?: "", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
                         "$meal · P ${Format.r1(r.protein?.inGrams ?: 0.0)} · C ${Format.r1(r.totalCarbohydrate?.inGrams ?: 0.0)} · F ${Format.r1(r.totalFat?.inGrams ?: 0.0)}",
                         fontSize = 12.sp, color = cs.onSurfaceVariant, maxLines = 1

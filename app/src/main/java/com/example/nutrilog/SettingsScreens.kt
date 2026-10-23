@@ -69,6 +69,7 @@ fun SettingsMain(settings: Settings, onOpen: (String) -> Unit, onBack: () -> Uni
         SubHeader("Settings", onBack)
 
         LinkRow(R.drawable.ic_goals, "Goals", "Daily targets for every nutrient") { onOpen("goals") }
+        LinkRow(R.drawable.ic_home, "Home screen", "Layout, calorie display, highlighted nutrients") { onOpen("home") }
         LinkRow(R.drawable.ic_bell, "Meal reminders", if (activeReminders == 0) "Off" else "$activeReminders active") { onOpen("reminders") }
         LinkRow(
             R.drawable.ic_lock, "Security",

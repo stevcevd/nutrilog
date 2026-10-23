@@ -43,7 +43,7 @@ private fun depth(page: String) = when (page) {
 }
 
 private fun parent(page: String) = when (page) {
-    "goals", "reminders", "security", "backup" -> "settings"
+    "goals", "home", "reminders", "security", "backup" -> "settings"
     else -> "me"
 }
 
@@ -78,6 +78,7 @@ fun MeHost(
             "me" -> MeMain(client, hasPerms, hasBody, requestBody, settings, refresh, { page = "edit" }, { page = "settings" })
             "edit" -> EditProfile(settings) { page = "me" }
             "settings" -> SettingsMain(settings, { page = it }, { page = "me" })
+            "home" -> HomeSettingsScreen(settings) { page = "settings" }
             "goals" -> GoalsScreen(goals, waterGoal, { page = "settings" }, onSaveGoals)
             "reminders" -> RemindersScreen(settings) { page = "settings" }
             "security" -> SecurityScreen(settings) { page = "settings" }

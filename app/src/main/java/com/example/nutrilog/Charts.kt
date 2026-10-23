@@ -46,6 +46,7 @@ fun RingChart(
     modifier: Modifier = Modifier,
     stroke: Dp = 12.dp,
     track: Color = MaterialTheme.colorScheme.surfaceVariant,
+    cap: StrokeCap = StrokeCap.Round,
     content: @Composable BoxScope.() -> Unit = {}
 ) {
     val a = rememberAnimatedFloat(progress.coerceIn(0f, 1f), 1000)
@@ -58,7 +59,7 @@ fun RingChart(
             if (a > 0.002f) {
                 drawArc(
                     color = color, startAngle = -90f, sweepAngle = 360f * a, useCenter = false,
-                    topLeft = tl, size = sz, style = Stroke(sw, cap = StrokeCap.Round)
+                    topLeft = tl, size = sz, style = Stroke(sw, cap = cap)
                 )
             }
         }
@@ -75,6 +76,7 @@ fun ActivityRings(
     stroke: Dp = 12.dp,
     gap: Dp = 5.dp,
     track: Color = MaterialTheme.colorScheme.surfaceVariant,
+    cap: StrokeCap = StrokeCap.Round,
     content: @Composable BoxScope.() -> Unit = {}
 ) {
     val anims = progress.map { rememberAnimatedFloat(it.coerceIn(0f, 1f), 1100) }
@@ -90,7 +92,7 @@ fun ActivityRings(
                 if (a > 0.002f) {
                     drawArc(
                         color = colors[i], startAngle = -90f, sweepAngle = 360f * a, useCenter = false,
-                        topLeft = tl, size = sz, style = Stroke(sw, cap = StrokeCap.Round)
+                        topLeft = tl, size = sz, style = Stroke(sw, cap = cap)
                     )
                 }
             }

@@ -82,6 +82,10 @@ class Settings(ctx: Context) {
     private val _smart = mutableStateOf(p.getBoolean("smart", true))
     private val _smartGap = mutableIntStateOf(p.getInt("smart_gap", 60))
     private val _smartGoal = mutableStateOf(p.getBoolean("smart_goal", true))
+    private val _ringStyle = mutableIntStateOf(p.getInt("ring_style", 0))      // 0 bars, 1 classic rings
+    private val _highlights = mutableStateOf(parseKeys(p.getString("highlights", null)))
+    private val _homeOrder = mutableStateOf(HomeLayout.normalize(csv(p.getString("home_order", null))))
+    private val _homeHidden = mutableStateOf(csv(p.getString("home_hidden", null)).toSet())
 
     val themeMode: Int get() = _themeMode.intValue
     val units: Int get() = _units.intValue
@@ -99,7 +103,15 @@ class Settings(ctx: Context) {
     val smartReminders: Boolean get() = _smart.value
     val smartGap: Int get() = _smartGap.intValue
     val smartGoal: Boolean get() = _smartGoal.value
+    val ringStyle: Int get() = _ringStyle.intValue
+    val highlights: List<String> get() = _highlights.value
+    val homeOrder: List<String> get() = _homeOrder.value
+    val homeHidden: Set<String> get() = _homeHidden.value
 
+    fun setRingStyle(v: Int) { _ringStyle.intValue = v; p.edit().putInt("ring_style", v).apply() }
+    fun setHighlights(v: List<String>) { _highlights.value = v; p.edit().putString("highlights", v.joinToString(",")).apply() }
+    fun setHomeOrder(v: List<String>) { _homeOrder.value = v; p.edit().putString("home_order", v.joinToString(",")).apply() }
+    fun setHomeHidden(v: Set<String>) { _homeHidden.value = v; p.edit().putString("home_hidden", v.joinToString(",")).apply() }
     fun setSmart(v: Boolean) { _smart.value = v; p.edit().putBoolean("smart", v).apply() }
     fun setSmartGap(v: Int) { _smartGap.intValue = v; p.edit().putInt("smart_gap", v).apply() }
     fun setSmartGoal(v: Boolean) { _smartGoal.value = v; p.edit().putBoolean("smart_goal", v).apply() }
@@ -159,6 +171,8 @@ class Settings(ctx: Context) {
     fun exportJson(): JSONObject = JSONObject()
         .put("theme", themeMode).put("units", units).put("fastingTarget", fastingTarget)
         .put("backupEvery", backupEveryHours).put("backupKeep", backupKeep)
+        .put("ringStyle", ringStyle).put("highlights", highlights.joinToString(","))
+        .put("homeOrder", homeOrder.joinToString(",")).put("homeHidden", homeHidden.joinToString(","))
         .put("profile", profile.toJson())
         .put("reminders", org.json.JSONArray(Reminders.toJson(reminders)))
 
@@ -168,7 +182,17 @@ class Settings(ctx: Context) {
         if (o.has("fastingTarget")) setFastingTarget(o.getInt("fastingTarget"))
         if (o.has("backupEvery")) setBackupEvery(o.getInt("backupEvery"))
         if (o.has("backupKeep")) setBackupKeep(o.getInt("backupKeep"))
+        if (o.has("ringStyle")) setRingStyle(o.getInt("ringStyle"))
+        if (o.has("highlights")) setHighlights(parseKeys(o.getString("highlights")))
+        if (o.has("homeOrder")) setHomeOrder(HomeLayout.normalize(csv(o.getString("homeOrder"))))
+        if (o.has("homeHidden")) setHomeHidden(csv(o.getString("homeHidden")).toSet())
         if (o.has("profile")) saveProfile(Profile.fromJson(o.getJSONObject("profile").toString()))
         if (o.has("reminders")) saveReminders(Reminders.parse(o.getJSONArray("reminders").toString()))
     }
 }
+
+private fun csv(s: String?): List<String> = s?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+
+private fun parseKeys(s: String?): List<String> =
+    if (s == null) listOf("fiber", "sugar", "na")
+    else csv(s).filter { Nutrients.byKey.containsKey(it) && it != "kcal" }.distinct().take(9)
