@@ -68,7 +68,7 @@ class MainActivity : FragmentActivity() {
                     window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
                 }
             }
-            NutriTheme(dark) {
+            NutriTheme(dark, settings.themeId) {
                 Box(Modifier.fillMaxSize()) {
                     App(settings)
                     AnimatedVisibility(AppLock.locked, enter = fadeIn(tween(150)), exit = fadeOut(tween(250))) {
@@ -159,13 +159,17 @@ fun App(settings: Settings) {
 
     val saveGoals: (Map<String, Double>, Double) -> Unit = { newGoals, newWater ->
         GoalsStore.save(context, newGoals)
+        GoalHistory.record(context, newGoals, settings.profile.goalType)
         GoalsStore.saveWater(context, newWater)
         goals = newGoals
         waterGoal = newWater
     }
 
     LaunchedEffect(client) { refreshPerms() }
-    LaunchedEffect(Unit) { Reminders.scheduleAll(context, settings.reminders) }
+    LaunchedEffect(Unit) {
+        Reminders.scheduleAll(context, settings.reminders)
+        GoalHistory.ensureSeed(context, goals, settings.profile.goalType)
+    }
 
     // "Log now" from a notification: jump to the Log tab and pre-fill a template
     LaunchedEffect(NavRequest.tab) {
@@ -205,6 +209,7 @@ fun App(settings: Settings) {
         if (goalsStr != null) {
             runCatching { NutritionParser.parseGoals(goalsStr) }.getOrNull()?.let {
                 GoalsStore.save(context, it)
+                GoalHistory.record(context, it, settings.profile.goalType)
                 goals = it
             }
         }

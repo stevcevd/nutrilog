@@ -36,7 +36,15 @@ val BODY_PERMISSIONS: Set<String> = setOf(
     HealthPermission.getReadPermission(TotalCaloriesBurnedRecord::class)
 )
 
-data class Workout(val title: String, val start: Instant, val minutes: Long)
+data class Workout(
+    val title: String,
+    val start: Instant,
+    val minutes: Long,
+    val end: Instant = start,
+    val sourcePackage: String = "",
+    val typeName: String = "Workout",
+    val notes: String? = null
+)
 
 data class BodySnapshot(
     val weightKg: Double?,
@@ -67,6 +75,17 @@ private suspend fun <T : Record> latestOf(client: HealthConnectClient, type: KCl
         )
     )
     return resp.records.firstOrNull()
+}
+
+private fun typeLabel(r: ExerciseSessionRecord): String = when (r.exerciseType) {
+    ExerciseSessionRecord.EXERCISE_TYPE_RUNNING -> "Running"
+    ExerciseSessionRecord.EXERCISE_TYPE_WALKING -> "Walking"
+    ExerciseSessionRecord.EXERCISE_TYPE_BIKING -> "Cycling"
+    ExerciseSessionRecord.EXERCISE_TYPE_SWIMMING_POOL -> "Swimming"
+    ExerciseSessionRecord.EXERCISE_TYPE_YOGA -> "Yoga"
+    ExerciseSessionRecord.EXERCISE_TYPE_HIKING -> "Hiking"
+    ExerciseSessionRecord.EXERCISE_TYPE_WEIGHTLIFTING -> "Weightlifting"
+    else -> "Workout"
 }
 
 private fun exerciseName(r: ExerciseSessionRecord): String {
@@ -126,7 +145,12 @@ suspend fun readBody(client: HealthConnectClient): BodySnapshot {
                 TimeRangeFilter.between(now.minus(Duration.ofDays(14)), now),
                 ascendingOrder = false, pageSize = 5
             )
-        ).records.map { Workout(exerciseName(it), it.startTime, Duration.between(it.startTime, it.endTime).toMinutes()) }
+        ).records.map {
+            Workout(
+                exerciseName(it), it.startTime, Duration.between(it.startTime, it.endTime).toMinutes(),
+                it.endTime, it.metadata.dataOrigin.packageName, typeLabel(it), it.notes
+            )
+        }
     } ?: emptyList()
 
     return BodySnapshot(latestW, series, change, bodyFat, height, lean, bone, bmr, steps, active, total, workouts)
@@ -138,4 +162,21 @@ suspend fun readWeightPoints(client: HealthConnectClient, days: Long): List<Pair
     return client.readRecords(
         ReadRecordsRequest(WeightRecord::class, TimeRangeFilter.between(now.minus(Duration.ofDays(days)), now))
     ).records.sortedBy { it.time }.map { it.time to it.weight.inKilograms }
+}
+
+/** Extra numbers recorded during one workout, from the same Health Connect data. */
+data class SessionStats(val activeKcal: Double?, val totalKcal: Double?, val steps: Long?)
+
+suspend fun readSessionStats(client: HealthConnectClient, start: Instant, end: Instant): SessionStats {
+    val f = TimeRangeFilter.between(start, end)
+    val active = safe {
+        client.aggregate(AggregateRequest(setOf(ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL), f))[ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL]?.inKilocalories
+    }
+    val total = safe {
+        client.aggregate(AggregateRequest(setOf(TotalCaloriesBurnedRecord.ENERGY_TOTAL), f))[TotalCaloriesBurnedRecord.ENERGY_TOTAL]?.inKilocalories
+    }
+    val steps = safe {
+        client.aggregate(AggregateRequest(setOf(StepsRecord.COUNT_TOTAL), f))[StepsRecord.COUNT_TOTAL]
+    }
+    return SessionStats(active, total, steps)
 }

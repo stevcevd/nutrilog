@@ -43,7 +43,7 @@ private fun depth(page: String) = when (page) {
 }
 
 private fun parent(page: String) = when (page) {
-    "goals", "home", "reminders", "security", "backup" -> "settings"
+    "goals", "home", "themes", "reminders", "security", "backup" -> "settings"
     else -> "me"
 }
 
@@ -79,6 +79,7 @@ fun MeHost(
             "edit" -> EditProfile(settings) { page = "me" }
             "settings" -> SettingsMain(settings, { page = it }, { page = "me" })
             "home" -> HomeSettingsScreen(settings) { page = "settings" }
+            "themes" -> ThemesScreen(settings) { page = "settings" }
             "goals" -> GoalsScreen(goals, waterGoal, { page = "settings" }, onSaveGoals)
             "reminders" -> RemindersScreen(settings) { page = "settings" }
             "security" -> SecurityScreen(settings) { page = "settings" }
@@ -278,24 +279,7 @@ private fun MeMain(
                     }
                 }
                 if (b.workouts.isNotEmpty()) {
-                    Reveal(4) {
-                        AppCard {
-                            Text("Recent workouts", fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-                            Spacer(Modifier.height(6.dp))
-                            b.workouts.forEach { w ->
-                                Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Column(Modifier.weight(1f)) {
-                                        Text(w.title, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                                        Text(
-                                            LocalDateTime.ofInstant(w.start, ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("EEE d MMM, HH:mm")),
-                                            fontSize = 12.sp, color = cs.onSurfaceVariant
-                                        )
-                                    }
-                                    Text("${w.minutes} min", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                }
-                            }
-                        }
-                    }
+                    Reveal(4) { WorkoutsCard(b.workouts, client) }
                 }
             }
         }

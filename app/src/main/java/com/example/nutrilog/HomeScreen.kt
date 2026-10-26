@@ -142,9 +142,10 @@ fun HomeScreen(
 
 @Composable
 private fun HeroSection(settings: Settings, t: (String) -> Double, g: (String) -> Double) {
+    val hero = LocalHero.current
     Box(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(32.dp))
-            .background(Brush.linearGradient(listOf(Color(0xFF059669), Color(0xFF0F766E), Color(0xFF155E75))))
+            .background(Brush.linearGradient(hero))
             .drawBehind {
                 drawCircle(Color.White.copy(alpha = 0.07f), size.width * 0.5f, Offset(size.width * 0.95f, 0f))
                 drawCircle(Color.White.copy(alpha = 0.05f), size.width * 0.35f, Offset(0f, size.height))

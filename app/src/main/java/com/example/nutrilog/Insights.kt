@@ -5,22 +5,25 @@ import java.time.temporal.ChronoUnit
 
 // ───────── Weekly gap report ─────────
 
-data class Gap(val n: Nutrient, val avg: Double, val goal: Double) {
-    val pct: Double get() = if (goal > 0) avg / goal else 0.0
-}
+data class Gap(val n: Nutrient, val avg: Double, val goal: Double, val pct: Double)
 
-/** Returns (nutrients falling short, limit-type nutrients over their limit), from the logged days' totals. */
-fun computeGaps(logged: List<Map<String, Double>>, goals: Map<String, Double>): Pair<List<Gap>, List<Gap>> {
-    if (logged.isEmpty()) return Pair(emptyList(), emptyList())
+/** One counted day: its nutrient totals and the goals that applied on that day. */
+class DayIntake(val totals: Map<String, Double>, val goals: Map<String, Double>)
+
+/** Returns (nutrients falling short, limit-type nutrients over their limit). Each day is judged against its own goals. */
+fun computeGaps(days: List<DayIntake>): Pair<List<Gap>, List<Gap>> {
+    if (days.isEmpty()) return Pair(emptyList(), emptyList())
     val under = ArrayList<Gap>()
     val over = ArrayList<Gap>()
     Nutrients.all.filter { it.key != "kcal" }.forEach { n ->
-        val goal = goals[n.key] ?: 0.0
-        if (goal <= 0.0) return@forEach
-        val avg = logged.sumOf { it[n.key] ?: 0.0 } / logged.size
-        val gap = Gap(n, avg, goal)
+        val withGoal = days.filter { (it.goals[n.key] ?: 0.0) > 0.0 }
+        if (withGoal.isEmpty()) return@forEach
+        val avg = days.sumOf { it.totals[n.key] ?: 0.0 } / days.size
+        val goal = withGoal.sumOf { it.goals[n.key] ?: 0.0 } / withGoal.size
+        val pct = withGoal.sumOf { (it.totals[n.key] ?: 0.0) / (it.goals[n.key] ?: 1.0) } / withGoal.size
+        val gap = Gap(n, avg, goal, pct)
         if (n.key in Nutrients.limitKeys) {
-            if (avg > goal) over += gap
+            if (pct > 1.0) over += gap
         } else {
             under += gap
         }
@@ -86,7 +89,7 @@ data class Verdict(
     val totalDays: Int = 0
 )
 
-data class WeekBucket(val label: String, val kcal: Double?, val weightKg: Double?)
+data class WeekBucket(val label: String, val kcal: Double?, val weightKg: Double?, val start: LocalDate, val end: LocalDate)
 
 object GoalLogic {
     private const val KCAL_PER_KG = 7700.0
@@ -108,7 +111,9 @@ object GoalLogic {
             WeekBucket(
                 weekStart.format(java.time.format.DateTimeFormatter.ofPattern("d MMM")),
                 if (k.isEmpty()) null else k.average(),
-                if (w.isEmpty()) null else w.average()
+                if (w.isEmpty()) null else w.average(),
+                weekStart,
+                weekEnd
             )
         }
 

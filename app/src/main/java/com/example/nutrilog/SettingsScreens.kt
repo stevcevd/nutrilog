@@ -70,6 +70,7 @@ fun SettingsMain(settings: Settings, onOpen: (String) -> Unit, onBack: () -> Uni
 
         LinkRow(R.drawable.ic_goals, "Goals", "Daily targets for every nutrient") { onOpen("goals") }
         LinkRow(R.drawable.ic_home, "Home screen", "Layout, calorie display, highlighted nutrients") { onOpen("home") }
+        LinkRow(R.drawable.ic_palette, "Themes", AppThemes.all[settings.themeId.coerceIn(0, AppThemes.all.size - 1)].name + " (10 themes, light and dark)") { onOpen("themes") }
         LinkRow(R.drawable.ic_bell, "Meal reminders", if (activeReminders == 0) "Off" else "$activeReminders active") { onOpen("reminders") }
         LinkRow(
             R.drawable.ic_lock, "Security",
@@ -517,6 +518,7 @@ fun BackupScreen(
                             try {
                                 val n = Backup.apply(client!!, pl, includeOld)
                                 if (includeSettings) {
+                                    pl.data.goalHistory?.let { GoalHistory.importArray(ctx, it) }
                                     pl.data.settings?.let { settings.importJson(it) }
                                     onRestoreSettings(pl.data.goals, pl.data.waterGoal)
                                 }

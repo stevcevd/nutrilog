@@ -28,7 +28,8 @@ data class BackupData(
     val goals: String?,
     val waterGoal: Double?,
     val settings: JSONObject?,
-    val createdAt: String
+    val createdAt: String,
+    val goalHistory: JSONArray? = null
 )
 
 data class RestorePlan(
@@ -82,7 +83,8 @@ object Backup {
             o.optString("goals").ifBlank { null },
             if (o.has("waterGoal")) o.getDouble("waterGoal") else null,
             o.optJSONObject("settings"),
-            o.optString("createdAt")
+            o.optString("createdAt"),
+            o.optJSONArray("goalHistory")
         )
     }
 
@@ -134,6 +136,7 @@ object Backup {
                 .put("goals", Format.goalsString(goals))
                 .put("waterGoal", waterGoal)
                 .put("settings", settings.exportJson())
+                .put("goalHistory", GoalHistory.export(ctx))
 
             val dir = DocumentFile.fromTreeUri(ctx, Uri.parse(tree)) ?: return@withContext "Backup folder unavailable"
             val name = PREFIX + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmm")) + ".json"

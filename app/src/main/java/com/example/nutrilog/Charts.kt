@@ -207,6 +207,19 @@ private fun AxisLabels(labels: List<String>) {
     }
 }
 
+/** Stepped, dashed goal line that follows how the goal changed from slot to slot. */
+private fun goalPath(goals: List<Double>, slot: Float, yAt: (Double) -> Float): Path {
+    val path = Path()
+    goals.forEachIndexed { i, gv ->
+        val y = yAt(gv)
+        val x0 = i * slot
+        val x1 = (i + 1) * slot
+        if (i == 0) path.moveTo(x0, y) else path.lineTo(x0, y)
+        path.lineTo(x1, y)
+    }
+    return path
+}
+
 @Composable
 fun AreaChart(
     values: List<Double>,
@@ -215,7 +228,9 @@ fun AreaChart(
     goal: Double?,
     color: Color,
     unit: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    goalSeries: List<Double>? = null,
+    partialLast: Boolean = false
 ) {
     val anim = rememberAnimatedFloat(1f, 1300)
     var sel by remember(values) { mutableIntStateOf(-1) }
@@ -223,10 +238,12 @@ fun AreaChart(
     val cs = MaterialTheme.colorScheme
     val grid = cs.outline.copy(alpha = 0.25f)
     val surface = cs.surface
-    val maxV = (maxOf(values.maxOrNull() ?: 0.0, goal ?: 0.0).coerceAtLeast(1.0) * 1.18).toFloat()
+    val goalTop = maxOf(goal ?: 0.0, goalSeries?.maxOrNull() ?: 0.0)
+    val maxV = (maxOf(values.maxOrNull() ?: 0.0, goalTop).coerceAtLeast(1.0) * 1.18).toFloat()
+    val lastGoal = goalSeries?.lastOrNull() ?: goal
 
     Column(modifier) {
-        ChartHeader(sel, fullLabels, values, unit, goal)
+        ChartHeader(sel, fullLabels, values, unit, lastGoal)
         Canvas(
             Modifier.fillMaxWidth().height(190.dp).padding(top = 6.dp)
                 .pointerInput(n) {
@@ -245,19 +262,21 @@ fun AreaChart(
                 drawLine(grid, Offset(0f, y), Offset(w, y), strokeWidth = 1.dp.toPx())
             }
             if (n == 0) return@Canvas
-            val xAt = { i: Int -> (i + 0.5f) * w / n }
+            val slot = w / n
+            val xAt = { i: Int -> (i + 0.5f) * slot }
             val yAt = { v: Double -> h - (v.toFloat() / maxV) * h }
+            val dash = PathEffect.dashPathEffect(floatArrayOf(14f, 10f))
 
-            if (goal != null && goal > 0) {
-                drawLine(
-                    Brand.Carbs, Offset(0f, yAt(goal)), Offset(w, yAt(goal)),
-                    strokeWidth = 1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 10f))
-                )
+            if (goalSeries != null && goalSeries.size == n && goalSeries.any { it > 0 }) {
+                drawPath(goalPath(goalSeries, slot, yAt), Brand.Carbs, style = Stroke(1.5.dp.toPx(), pathEffect = dash))
+            } else if (goal != null && goal > 0) {
+                drawLine(Brand.Carbs, Offset(0f, yAt(goal)), Offset(w, yAt(goal)), strokeWidth = 1.5.dp.toPx(), pathEffect = dash)
             }
 
+            val solid = if (partialLast && n >= 2) n - 1 else n
             val line = Path()
             val fill = Path()
-            for (i in 0 until n) {
+            for (i in 0 until solid) {
                 val x = xAt(i)
                 val y = yAt(values[i])
                 if (i == 0) {
@@ -272,13 +291,20 @@ fun AreaChart(
                     fill.cubicTo(mx, y0, mx, y, x, y)
                 }
             }
-            fill.lineTo(xAt(n - 1), h)
+            fill.lineTo(xAt(solid - 1), h)
             fill.lineTo(xAt(0), h)
             fill.close()
 
             clipRect(right = w * anim) {
                 drawPath(fill, Brush.verticalGradient(listOf(color.copy(alpha = 0.38f), color.copy(alpha = 0f)), startY = 0f, endY = h))
                 drawPath(line, color, style = Stroke(3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+                if (solid < n) {
+                    drawLine(
+                        color, Offset(xAt(solid - 1), yAt(values[solid - 1])), Offset(xAt(n - 1), yAt(values[n - 1])),
+                        strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round,
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 12f))
+                    )
+                }
             }
 
             if (sel in 0 until n) {
@@ -287,10 +313,15 @@ fun AreaChart(
             for (i in 0 until n) {
                 val x = xAt(i)
                 if (x > w * anim) continue
-                if (n <= 14 || i == sel) {
+                if (n <= 14 || i == sel || (partialLast && i == n - 1)) {
                     val r = if (i == sel) 6.dp.toPx() else 4.dp.toPx()
-                    drawCircle(surface, r + 2.dp.toPx(), Offset(x, yAt(values[i])))
-                    drawCircle(color, r, Offset(x, yAt(values[i])))
+                    val c = Offset(x, yAt(values[i]))
+                    drawCircle(surface, r + 2.dp.toPx(), c)
+                    if (partialLast && i == n - 1 && n >= 2) {
+                        drawCircle(color, r, c, style = Stroke(2.dp.toPx()))
+                    } else {
+                        drawCircle(color, r, c)
+                    }
                 }
             }
         }
@@ -307,17 +338,21 @@ fun BarChart(
     color: Color,
     unit: String,
     modifier: Modifier = Modifier,
-    highlightOver: Boolean = false
+    highlightOver: Boolean = false,
+    goalSeries: List<Double>? = null,
+    partialLast: Boolean = false
 ) {
     val anim = rememberAnimatedFloat(1f, 1000)
     var sel by remember(values) { mutableIntStateOf(-1) }
     val n = values.size
     val cs = MaterialTheme.colorScheme
     val grid = cs.outline.copy(alpha = 0.25f)
-    val maxV = (maxOf(values.maxOrNull() ?: 0.0, goal ?: 0.0).coerceAtLeast(1.0) * 1.18).toFloat()
+    val goalTop = maxOf(goal ?: 0.0, goalSeries?.maxOrNull() ?: 0.0)
+    val maxV = (maxOf(values.maxOrNull() ?: 0.0, goalTop).coerceAtLeast(1.0) * 1.18).toFloat()
+    val lastGoal = goalSeries?.lastOrNull() ?: goal
 
     Column(modifier) {
-        ChartHeader(sel, fullLabels, values, unit, goal)
+        ChartHeader(sel, fullLabels, values, unit, lastGoal)
         Canvas(
             Modifier.fillMaxWidth().height(190.dp).padding(top = 6.dp)
                 .pointerInput(n) {
@@ -338,27 +373,30 @@ fun BarChart(
             if (n == 0) return@Canvas
             val slot = w / n
             val barW = slot * 0.6f
+            val yAt = { v: Double -> h - (v.toFloat() / maxV) * h }
             values.forEachIndexed { i, v ->
                 val barH = (v.toFloat() / maxV) * h * anim
                 val x = i * slot + (slot - barW) / 2
-                val over = highlightOver && goal != null && goal > 0 && v > goal * 1.1
+                val dayGoal = goalSeries?.getOrNull(i) ?: goal
+                val over = highlightOver && dayGoal != null && dayGoal > 0 && v > dayGoal * 1.1
                 val base = if (over) Brand.Carbs else color
-                val c = if (sel == -1 || sel == i) base else base.copy(alpha = 0.35f)
+                val partial = partialLast && i == n - 1
+                val a = if (partial) 0.4f else if (sel == -1 || sel == i) 1f else 0.35f
+                val c = base.copy(alpha = a)
                 if (barH > 0.5f) {
                     drawRoundRect(
-                        brush = Brush.verticalGradient(listOf(c, c.copy(alpha = 0.6f)), startY = h - barH, endY = h),
+                        brush = Brush.verticalGradient(listOf(c, c.copy(alpha = a * 0.6f)), startY = h - barH, endY = h),
                         topLeft = Offset(x, h - barH),
                         size = Size(barW, barH),
                         cornerRadius = CornerRadius(barW / 3f, barW / 3f)
                     )
                 }
             }
-            if (goal != null && goal > 0) {
-                val gy = h - (goal.toFloat() / maxV) * h
-                drawLine(
-                    Brand.Carbs, Offset(0f, gy), Offset(w, gy),
-                    strokeWidth = 1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 10f))
-                )
+            val dash = PathEffect.dashPathEffect(floatArrayOf(14f, 10f))
+            if (goalSeries != null && goalSeries.size == n && goalSeries.any { it > 0 }) {
+                drawPath(goalPath(goalSeries, slot, yAt), Brand.Carbs, style = Stroke(1.5.dp.toPx(), pathEffect = dash))
+            } else if (goal != null && goal > 0) {
+                drawLine(Brand.Carbs, Offset(0f, yAt(goal)), Offset(w, yAt(goal)), strokeWidth = 1.5.dp.toPx(), pathEffect = dash)
             }
         }
         AxisLabels(shortLabels)
@@ -371,9 +409,10 @@ fun WeightCalChart(
     kcal: List<Double?>,
     weight: List<Double?>,
     shortLabels: List<String>,
-    kcalGoal: Double?,
+    kcalGoals: List<Double>,
     weightUnit: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    phaseIndex: Int? = null
 ) {
     val anim = rememberAnimatedFloat(1f, 1200)
     var sel by remember(kcal, weight) { mutableIntStateOf(-1) }
@@ -381,7 +420,8 @@ fun WeightCalChart(
     val cs = MaterialTheme.colorScheme
     val grid = cs.outline.copy(alpha = 0.25f)
     val surface = cs.surface
-    val maxK = (maxOf(kcal.filterNotNull().maxOrNull() ?: 0.0, kcalGoal ?: 0.0).coerceAtLeast(1.0) * 1.2).toFloat()
+    val phaseColor = cs.onSurfaceVariant
+    val maxK = (maxOf(kcal.filterNotNull().maxOrNull() ?: 0.0, kcalGoals.maxOrNull() ?: 0.0).coerceAtLeast(1.0) * 1.2).toFloat()
     val ws = weight.filterNotNull()
     val wMin = ws.minOrNull() ?: 0.0
     val wMax = ws.maxOrNull() ?: 1.0
@@ -392,7 +432,7 @@ fun WeightCalChart(
     Column(modifier) {
         Box(Modifier.fillMaxWidth().height(28.dp), contentAlignment = Alignment.CenterStart) {
             if (sel in 0 until n) {
-                val k = kcal[sel]?.let { Format.int(it) + " kcal/day" } ?: "no food logged"
+                val k = kcal[sel]?.let { Format.int(it) + " kcal/day" } ?: "no counted days"
                 val w = weight[sel]?.let { Format.r1(it) + " " + weightUnit } ?: "no weigh-in"
                 Text("${shortLabels[sel]}  ·  $k  ·  $w", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             } else {
@@ -429,9 +469,16 @@ fun WeightCalChart(
                     )
                 }
             }
-            if (kcalGoal != null && kcalGoal > 0) {
-                val gy = h - (kcalGoal.toFloat() / maxK) * h
-                drawLine(Brand.Carbs, Offset(0f, gy), Offset(w, gy), strokeWidth = 1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 10f)))
+            val kY = { v: Double -> h - (v.toFloat() / maxK) * h }
+            if (kcalGoals.size == n && kcalGoals.any { it > 0 }) {
+                drawPath(
+                    goalPath(kcalGoals, slot, kY), Brand.Carbs,
+                    style = Stroke(1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 10f)))
+                )
+            }
+            if (phaseIndex != null && phaseIndex in 0 until n) {
+                val x = phaseIndex * slot
+                drawLine(phaseColor.copy(alpha = 0.6f), Offset(x, 0f), Offset(x, h), strokeWidth = 1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 8f)))
             }
 
             val xAt = { i: Int -> (i + 0.5f) * slot }

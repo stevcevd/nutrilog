@@ -5,6 +5,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 
 object Brand {
@@ -33,7 +34,7 @@ object Brand {
     }
 }
 
-private val LightScheme = lightColorScheme(
+val EmeraldLight = lightColorScheme(
     primary = Color(0xFF059669),
     onPrimary = Color.White,
     primaryContainer = Color(0xFFD1FAE5),
@@ -49,7 +50,7 @@ private val LightScheme = lightColorScheme(
     error = Color(0xFFDC2626)
 )
 
-private val DarkScheme = darkColorScheme(
+val EmeraldDark = darkColorScheme(
     primary = Color(0xFF34D399),
     onPrimary = Color(0xFF022C22),
     primaryContainer = Color(0xFF0B3B2E),
@@ -66,9 +67,8 @@ private val DarkScheme = darkColorScheme(
 )
 
 @Composable
-fun NutriTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = if (dark) DarkScheme else LightScheme,
-        content = content
-    )
+fun NutriTheme(dark: Boolean = isSystemInDarkTheme(), themeId: Int = 0, content: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalHero provides AppThemes.hero(themeId)) {
+        MaterialTheme(colorScheme = AppThemes.scheme(themeId, dark), content = content)
+    }
 }
